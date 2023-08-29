@@ -1,4 +1,5 @@
 import { grey } from '@ant-design/colors';
+import { Typography as TypographyComponent } from 'antd';
 import styled from 'styled-components';
 
 export const HeaderContainer = styled.div<{ hover: boolean }>`
@@ -9,6 +10,8 @@ export const HeaderContainer = styled.div<{ hover: boolean }>`
 	font-size: 0.8rem;
 	cursor: all-scroll;
 	position: absolute;
+	top: 0;
+	left: 0;
 `;
 
 export const HeaderContentContainer = styled.span`
@@ -21,4 +24,35 @@ export const ArrowContainer = styled.span<{ hover: boolean }>`
 	visibility: ${({ hover }): string => (hover ? 'visible' : 'hidden')};
 	position: absolute;
 	right: -1rem;
+`;
+
+export const ThesholdContainer = styled.span`
+	margin-top: -0.3rem;
+`;
+
+export const DisplayThresholdContainer = styled.div`
+	display: flex;
+	align-items: center;
+	width: auto;
+	justify-content: space-between;
+`;
+
+export const WidgetHeaderContainer = styled.div`
+	display: flex;
+	flex-direction: row-reverse;
+	align-items: center;
+`;
+
+export const Typography = styled(TypographyComponent)`
+	&&& {
+		width: auto;
+		margin-left: 0.2rem;
+		color: ${grey[2]};
+	}
+`;
+
+export const TypographHeading = styled(TypographyComponent)`
+	&&& {
+		color: ${grey[2]};
+	}
 `;

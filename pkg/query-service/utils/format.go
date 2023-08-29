@@ -2,10 +2,12 @@ package utils
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
 
+	"go.signoz.io/signoz/pkg/query-service/constants"
 	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
 	"go.uber.org/zap"
 )
@@ -141,17 +143,28 @@ func ValidateAndCastValue(v interface{}, dataType v3.AttributeKeyDataType) (inte
 	}
 }
 
+func quoteEscapedString(str string) string {
+	// https://clickhouse.com/docs/en/sql-reference/syntax#string
+	str = strings.ReplaceAll(str, `\`, `\\`)
+	str = strings.ReplaceAll(str, `'`, `\'`)
+	return str
+}
+
 // ClickHouseFormattedValue formats the value to be used in clickhouse query
 func ClickHouseFormattedValue(v interface{}) string {
+	// if it's pointer convert it to a value
+	v = getPointerValue(v)
+
 	switch x := v.(type) {
-	case int, int8, int16, int32, int64:
+	case uint8, uint16, uint32, uint64, int, int8, int16, int32, int64:
 		return fmt.Sprintf("%d", x)
 	case float32, float64:
 		return fmt.Sprintf("%f", x)
 	case string:
-		return fmt.Sprintf("'%s'", x)
+		return fmt.Sprintf("'%s'", quoteEscapedString(x))
 	case bool:
 		return fmt.Sprintf("%v", x)
+
 	case []interface{}:
 		if len(x) == 0 {
 			return ""
@@ -160,14 +173,14 @@ func ClickHouseFormattedValue(v interface{}) string {
 		case string:
 			str := "["
 			for idx, sVal := range x {
-				str += fmt.Sprintf("'%s'", sVal)
+				str += fmt.Sprintf("'%s'", quoteEscapedString(sVal.(string)))
 				if idx != len(x)-1 {
 					str += ","
 				}
 			}
 			str += "]"
 			return str
-		case int, int8, int16, int32, int64, float32, float64, bool:
+		case uint8, uint16, uint32, uint64, int, int8, int16, int32, int64, float32, float64, bool:
 			return strings.Join(strings.Fields(fmt.Sprint(x)), ",")
 		default:
 			zap.S().Error("invalid type for formatted value", zap.Any("type", reflect.TypeOf(x[0])))
@@ -177,4 +190,71 @@ func ClickHouseFormattedValue(v interface{}) string {
 		zap.S().Error("invalid type for formatted value", zap.Any("type", reflect.TypeOf(x)))
 		return ""
 	}
+}
+
+func getPointerValue(v interface{}) interface{} {
+	switch x := v.(type) {
+	case *uint8:
+		return *x
+	case *uint16:
+		return *x
+	case *uint32:
+		return *x
+	case *uint64:
+		return *x
+	case *int:
+		return *x
+	case *int8:
+		return *x
+	case *int16:
+		return *x
+	case *int32:
+		return *x
+	case *int64:
+		return *x
+	case *float32:
+		return *x
+	case *float64:
+		return *x
+	case *string:
+		return *x
+	case *bool:
+		return *x
+	case []interface{}:
+		values := []interface{}{}
+		for _, val := range x {
+			values = append(values, getPointerValue(val))
+		}
+		return values
+	default:
+		return v
+	}
+}
+
+func GetClickhouseColumnName(typeName string, dataType, field string) string {
+	if typeName == string(v3.AttributeKeyTypeTag) {
+		typeName = constants.Attributes
+	}
+
+	if typeName != string(v3.AttributeKeyTypeResource) {
+		typeName = typeName[:len(typeName)-1]
+	}
+
+	colName := fmt.Sprintf("%s_%s_%s", strings.ToLower(typeName), strings.ToLower(dataType), field)
+	return colName
+}
+
+// GetEpochNanoSecs takes epoch and returns it in ns
+func GetEpochNanoSecs(epoch int64) int64 {
+	temp := epoch
+	count := 0
+	if epoch == 0 {
+		count = 1
+	} else {
+		for epoch != 0 {
+			epoch /= 10
+			count++
+		}
+	}
+	return temp * int64(math.Pow(10, float64(19-count)))
 }

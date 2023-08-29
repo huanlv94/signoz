@@ -235,7 +235,7 @@ func (q *querier) runBuilderQueries(ctx context.Context, params *v3.QueryRangePa
 
 		// TODO: add support for logs and traces
 		if builderQuery.DataSource == v3.DataSourceLogs {
-			query, err := logsV3.PrepareLogsQuery(params.Start, params.End, params.CompositeQuery.QueryType, params.CompositeQuery.PanelType, builderQuery)
+			query, err := logsV3.PrepareLogsQuery(params.Start, params.End, params.CompositeQuery.QueryType, params.CompositeQuery.PanelType, builderQuery, logsV3.Options{})
 			if err != nil {
 				errQueriesByName[queryName] = err.Error()
 				continue
@@ -250,7 +250,10 @@ func (q *querier) runBuilderQueries(ctx context.Context, params *v3.QueryRangePa
 		}
 
 		if builderQuery.DataSource == v3.DataSourceTraces {
-			query, err := tracesV3.PrepareTracesQuery(params.Start, params.End, params.CompositeQuery.QueryType, params.CompositeQuery.PanelType, builderQuery, keys)
+			query, err := tracesV3.PrepareTracesQuery(params.Start, params.End, params.CompositeQuery.PanelType, builderQuery, keys, tracesV3.Options{
+				GraphLimitQtype: "",
+				PreferRPM:       false,
+			})
 			if err != nil {
 				errQueriesByName[queryName] = err.Error()
 				continue
@@ -285,6 +288,7 @@ func (q *querier) runBuilderQueries(ctx context.Context, params *v3.QueryRangePa
 				params.CompositeQuery.QueryType,
 				params.CompositeQuery.PanelType,
 				builderQuery,
+				metricsV3.Options{PreferRPM: false},
 			)
 			if err != nil {
 				errQueriesByName[queryName] = err.Error()

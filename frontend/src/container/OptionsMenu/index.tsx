@@ -1,11 +1,6 @@
 import { SettingFilled, SettingOutlined } from '@ant-design/icons';
-import {
-	InputNumberProps,
-	Popover,
-	RadioProps,
-	SelectProps,
-	Space,
-} from 'antd';
+import { Popover, Space } from 'antd';
+import { OptionFormatTypes } from 'constants/optionsFormatTypes';
 import { useIsDarkMode } from 'hooks/useDarkMode';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,8 +9,18 @@ import AddColumnField from './AddColumnField';
 import FormatField from './FormatField';
 import MaxLinesField from './MaxLinesField';
 import { OptionsContainer, OptionsContentWrapper } from './styles';
+import { OptionsMenuConfig } from './types';
+import useOptionsMenu from './useOptionsMenu';
 
-function OptionsMenu({ config }: OptionsMenuProps): JSX.Element {
+interface OptionsMenuProps {
+	selectedOptionFormat?: string;
+	config: OptionsMenuConfig;
+}
+
+function OptionsMenu({
+	selectedOptionFormat,
+	config,
+}: OptionsMenuProps): JSX.Element {
 	const { t } = useTranslation(['trace']);
 	const isDarkMode = useIsDarkMode();
 
@@ -23,11 +28,15 @@ function OptionsMenu({ config }: OptionsMenuProps): JSX.Element {
 		() => (
 			<OptionsContentWrapper direction="vertical">
 				{config?.format && <FormatField config={config.format} />}
-				{config?.maxLines && <MaxLinesField config={config.maxLines} />}
-				{config?.addColumn && <AddColumnField config={config.addColumn} />}
+				{selectedOptionFormat === OptionFormatTypes.RAW && config?.maxLines && (
+					<MaxLinesField config={config.maxLines} />
+				)}
+				{(selectedOptionFormat === OptionFormatTypes.LIST ||
+					selectedOptionFormat === OptionFormatTypes.TABLE) &&
+					config?.addColumn && <AddColumnField config={config.addColumn} />}
 			</OptionsContentWrapper>
 		),
-		[config],
+		[config, selectedOptionFormat],
 	);
 
 	const SettingIcon = isDarkMode ? SettingOutlined : SettingFilled;
@@ -44,14 +53,10 @@ function OptionsMenu({ config }: OptionsMenuProps): JSX.Element {
 	);
 }
 
-export type OptionsMenuConfig = {
-	format?: Pick<RadioProps, 'value' | 'onChange'>;
-	maxLines?: Pick<InputNumberProps, 'value' | 'onChange'>;
-	addColumn?: Pick<SelectProps, 'options' | 'value' | 'onChange'>;
+export default OptionsMenu;
+
+OptionsMenu.defaultProps = {
+	selectedOptionFormat: 'raw',
 };
 
-interface OptionsMenuProps {
-	config: OptionsMenuConfig;
-}
-
-export default OptionsMenu;
+export { useOptionsMenu };
