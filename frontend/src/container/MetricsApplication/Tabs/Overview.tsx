@@ -92,8 +92,8 @@ function Application(): JSX.Element {
 
 	const {
 		data: topLevelOperations,
-		isLoading: topLevelOperationsLoading,
 		error: topLevelOperationsError,
+		isLoading: topLevelOperationsIsLoading,
 		isError: topLevelOperationsIsError,
 	} = useQuery<ServiceDataProps>({
 		queryKey: [servicename, minTime, maxTime, selectedTags],
@@ -131,6 +131,7 @@ function Application(): JSX.Element {
 				},
 				title: GraphTitle.RATE_PER_OPS,
 				panelTypes: PANEL_TYPES.TIME_SERIES,
+				yAxisUnit: 'ops',
 			}),
 		[servicename, tagFilterItems, topLevelOperationsRoute],
 	);
@@ -151,6 +152,7 @@ function Application(): JSX.Element {
 				},
 				title: GraphTitle.ERROR_PERCENTAGE,
 				panelTypes: PANEL_TYPES.TIME_SERIES,
+				yAxisUnit: '%',
 			}),
 		[servicename, tagFilterItems, topLevelOperationsRoute],
 	);
@@ -197,7 +199,7 @@ function Application(): JSX.Element {
 						selectedTimeStamp={selectedTimeStamp}
 						selectedTraceTags={selectedTraceTags}
 						topLevelOperationsRoute={topLevelOperationsRoute}
-						topLevelOperationsLoading={topLevelOperationsLoading}
+						topLevelOperationsIsLoading={topLevelOperationsIsLoading}
 					/>
 				</Col>
 
@@ -218,12 +220,11 @@ function Application(): JSX.Element {
 						handleGraphClick={handleGraphClick}
 						onDragSelect={onDragSelect}
 						topLevelOperationsError={topLevelOperationsError}
-						topLevelOperationsLoading={topLevelOperationsLoading}
 						topLevelOperationsIsError={topLevelOperationsIsError}
 						name="operations_per_sec"
 						widget={operationPerSecWidget}
-						yAxisUnit="ops"
 						opName="Rate"
+						topLevelOperationsIsLoading={topLevelOperationsIsLoading}
 					/>
 				</Col>
 			</Row>
@@ -263,12 +264,11 @@ function Application(): JSX.Element {
 							handleGraphClick={handleGraphClick}
 							onDragSelect={onDragSelect}
 							topLevelOperationsError={topLevelOperationsError}
-							topLevelOperationsLoading={topLevelOperationsLoading}
 							topLevelOperationsIsError={topLevelOperationsIsError}
 							name="error_percentage_%"
 							widget={errorPercentageWidget}
-							yAxisUnit="%"
 							opName="Error"
+							topLevelOperationsIsLoading={topLevelOperationsIsLoading}
 						/>
 					</ColErrorContainer>
 				</Col>

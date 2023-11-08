@@ -1,3 +1,5 @@
+import { DownloadOptions } from 'container/Download/Download.types';
+
 export const legend = {
 	address: '{{address}}',
 };
@@ -41,13 +43,6 @@ export enum KeyOperationTableHeader {
 	OPERATION_PR_SECOND = 'Op/s',
 }
 
-export enum DataType {
-	STRING = 'string',
-	FLOAT64 = 'float64',
-	INT64 = 'int64',
-	BOOL = 'bool',
-}
-
 export enum MetricsType {
 	Tag = 'tag',
 	Resource = 'resource',
@@ -74,3 +69,8 @@ export enum WidgetKeys {
 	SignozExternalCallLatencySum = 'signoz_external_call_latency_sum',
 	Signoz_latency_bucket = 'signoz_latency_bucket',
 }
+
+export const topOperationMetricsDownloadOptions: DownloadOptions = {
+	isDownloadEnabled: true,
+	fileName: 'top-operation',
+} as const;

@@ -1,7 +1,6 @@
-import Spinner from 'components/Spinner';
 import { FeatureKeys } from 'constants/features';
 import { PANEL_TYPES } from 'constants/queryBuilder';
-import Graph from 'container/GridGraphLayout/Graph/';
+import Graph from 'container/GridCardLayout/GridCard';
 import { GraphTitle } from 'container/MetricsApplication/constant';
 import { getWidgetQueryBuilder } from 'container/MetricsApplication/MetricsApplication.factory';
 import { latency } from 'container/MetricsApplication/MetricsPageQueries/OverviewQueries';
@@ -25,7 +24,7 @@ function ServiceOverview({
 	selectedTraceTags,
 	selectedTimeStamp,
 	topLevelOperationsRoute,
-	topLevelOperationsLoading,
+	topLevelOperationsIsLoading,
 }: ServiceOverviewProps): JSX.Element {
 	const { servicename } = useParams<IServiceName>();
 
@@ -59,19 +58,13 @@ function ServiceOverview({
 				},
 				title: GraphTitle.LATENCY,
 				panelTypes: PANEL_TYPES.TIME_SERIES,
+				yAxisUnit: 'ns',
 			}),
 		[servicename, isSpanMetricEnable, topLevelOperationsRoute, tagFilterItems],
 	);
 
-	const isQueryEnabled = topLevelOperationsRoute.length > 0;
-
-	if (topLevelOperationsLoading) {
-		return (
-			<Card>
-				<Spinner height="40vh" tip="Loading..." />
-			</Card>
-		);
-	}
+	const isQueryEnabled =
+		!topLevelOperationsIsLoading && topLevelOperationsRoute.length > 0;
 
 	return (
 		<>
@@ -93,7 +86,6 @@ function ServiceOverview({
 						name="service_latency"
 						onDragSelect={onDragSelect}
 						widget={latencyWidget}
-						yAxisUnit="ns"
 						onClickHandler={handleGraphClick('Service')}
 						isQueryEnabled={isQueryEnabled}
 					/>
@@ -109,7 +101,7 @@ interface ServiceOverviewProps {
 	onDragSelect: (start: number, end: number) => void;
 	handleGraphClick: (type: string) => ClickHandlerType;
 	topLevelOperationsRoute: string[];
-	topLevelOperationsLoading: boolean;
+	topLevelOperationsIsLoading: boolean;
 }
 
 export default ServiceOverview;
