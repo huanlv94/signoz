@@ -164,7 +164,7 @@ services:
   # Notes for Maintainers/Contributors who will change Line Numbers of Frontend & Query-Section. Please Update Line Numbers in `./scripts/commentLinesForSetup.sh` & `./CONTRIBUTING.md`
 
   query-service:
-    image: signoz/query-service:${DOCKER_TAG:-0.34.3}
+    image: signoz/query-service:${DOCKER_TAG:-0.34.4}
     container_name: signoz-query-service
     command:
       [
