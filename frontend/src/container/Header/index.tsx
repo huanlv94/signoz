@@ -162,17 +162,17 @@ function HeaderContainer(): JSX.Element {
 								style={{ margin: 0, color: 'rgb(219, 219, 219)' }}
 								level={4}
 							>
-								SigNoz
+								Travala.com
 							</Typography.Title>
 						</NavLinkWrapper>
 					</NavLink>
 
 					<Space size="middle" align="center">
-						{licenseStatus === 'success' && !isLicenseActive && (
+						{/*{licenseStatus === 'success' && !isLicenseActive && (
 							<Button onClick={onClickSignozCloud} type="primary">
 								Try Signoz Cloud
 							</Button>
-						)}
+						)}*/}
 						<Config frontendId="tooltip" />
 
 						<ToggleButton

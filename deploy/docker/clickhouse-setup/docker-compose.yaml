@@ -203,7 +203,8 @@ services:
     <<: *db-depend
 
   frontend:
-    image: signoz/frontend:${DOCKER_TAG:-0.34.3}
+    # image: signoz/frontend:${DOCKER_TAG:-0.34.3}
+    build: ../../../frontend
     container_name: signoz-frontend
     restart: on-failure
     depends_on:
