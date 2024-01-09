@@ -26,25 +26,19 @@ import { GlobalReducer } from 'types/reducer/globalTime';
 import { Tags } from 'types/reducer/trace';
 import { v4 as uuid } from 'uuid';
 
-import { GraphTitle } from '../constant';
+import { GraphTitle, SERVICE_CHART_ID } from '../constant';
 import { getWidgetQueryBuilder } from '../MetricsApplication.factory';
 import {
 	errorPercentage,
 	operationPerSec,
 } from '../MetricsPageQueries/OverviewQueries';
-import {
-	Card,
-	Col,
-	ColApDexContainer,
-	ColErrorContainer,
-	Row,
-} from '../styles';
+import { Col, ColApDexContainer, ColErrorContainer, Row } from '../styles';
 import ApDex from './Overview/ApDex';
 import ServiceOverview from './Overview/ServiceOverview';
 import TopLevelOperation from './Overview/TopLevelOperations';
 import TopOperation from './Overview/TopOperation';
 import TopOperationMetrics from './Overview/TopOperationMetrics';
-import { Button } from './styles';
+import { Button, Card } from './styles';
 import { IServiceName } from './types';
 import {
 	handleNonInQueryRange,
@@ -131,6 +125,7 @@ function Application(): JSX.Element {
 				title: GraphTitle.RATE_PER_OPS,
 				panelTypes: PANEL_TYPES.TIME_SERIES,
 				yAxisUnit: 'ops',
+				id: SERVICE_CHART_ID.rps,
 			}),
 		[servicename, tagFilterItems, topLevelOperationsRoute],
 	);
@@ -152,6 +147,7 @@ function Application(): JSX.Element {
 				title: GraphTitle.ERROR_PERCENTAGE,
 				panelTypes: PANEL_TYPES.TIME_SERIES,
 				yAxisUnit: '%',
+				id: SERVICE_CHART_ID.errorPercentage,
 			}),
 		[servicename, tagFilterItems, topLevelOperationsRoute],
 	);
@@ -274,7 +270,7 @@ function Application(): JSX.Element {
 
 				<Col span={12}>
 					<Card>
-						{isSpanMetricEnabled ? <TopOperationMetrics /> : <TopOperation />}
+						{isSpanMetricEnabled ? <TopOperationMetrics /> : <TopOperation />}{' '}
 					</Card>
 				</Col>
 			</Row>
