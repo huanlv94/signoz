@@ -2,6 +2,7 @@
 // shared config (dev and prod)
 const { resolve } = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const { sentryWebpackPlugin } = require('@sentry/webpack-plugin');
 const portFinderSync = require('portfinder-sync');
 const dotenv = require('dotenv');
 const webpack = require('webpack');
@@ -21,7 +22,14 @@ const plugins = [
 		template: 'src/index.html.ejs',
 		INTERCOM_APP_ID: process.env.INTERCOM_APP_ID,
 		SEGMENT_ID: process.env.SEGMENT_ID,
+		POSTHOG_KEY: process.env.POSTHOG_KEY,
 		CLARITY_PROJECT_ID: process.env.CLARITY_PROJECT_ID,
+		SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+		SENTRY_ORG: process.env.SENTRY_ORG,
+		SENTRY_PROJECT_ID: process.env.SENTRY_PROJECT_ID,
+		SENTRY_DSN: process.env.SENTRY_DSN,
+		TUNNEL_URL: process.env.TUNNEL_URL,
+		TUNNEL_DOMAIN: process.env.TUNNEL_DOMAIN,
 	}),
 	new webpack.ProvidePlugin({
 		process: 'process/browser',
@@ -32,8 +40,20 @@ const plugins = [
 			FRONTEND_API_ENDPOINT: process.env.FRONTEND_API_ENDPOINT,
 			INTERCOM_APP_ID: process.env.INTERCOM_APP_ID,
 			SEGMENT_ID: process.env.SEGMENT_ID,
+			POSTHOG_KEY: process.env.POSTHOG_KEY,
 			CLARITY_PROJECT_ID: process.env.CLARITY_PROJECT_ID,
+			SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
+			SENTRY_ORG: process.env.SENTRY_ORG,
+			SENTRY_PROJECT_ID: process.env.SENTRY_PROJECT_ID,
+			SENTRY_DSN: process.env.SENTRY_DSN,
+			TUNNEL_URL: process.env.TUNNEL_URL,
+			TUNNEL_DOMAIN: process.env.TUNNEL_DOMAIN,
 		}),
+	}),
+	sentryWebpackPlugin({
+		authToken: process.env.SENTRY_AUTH_TOKEN,
+		org: process.env.SENTRY_ORG,
+		project: process.env.SENTRY_PROJECT_ID,
 	}),
 ];
 
@@ -46,10 +66,12 @@ if (process.env.BUNDLE_ANALYSER === 'true') {
  */
 const config = {
 	mode: 'development',
-	devtool: 'eval-source-map',
+	devtool: 'source-map',
 	entry: resolve(__dirname, './src/index.tsx'),
 	devServer: {
-		historyApiFallback: true,
+		historyApiFallback: {
+			disableDotRule: true,
+		},
 		open: true,
 		hot: true,
 		liveReload: true,

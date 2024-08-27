@@ -1,6 +1,5 @@
-import { Tag } from 'antd';
+import { Tag, Typography } from 'antd';
 import { ColumnsType } from 'antd/es/table';
-import Typography from 'antd/es/typography/Typography';
 import ROUTES from 'constants/routes';
 import { getMs } from 'container/Trace/Filters/Panel/PanelBody/Duration/util';
 import { formUrlParams } from 'container/TraceDetail/utils';
@@ -9,8 +8,6 @@ import { RowData } from 'lib/query/createTableColumnsFromQuery';
 import { ILog } from 'types/api/logs/log';
 import { BaseAutocompleteData } from 'types/api/queryBuilder/queryAutocompleteResponse';
 import { QueryDataV3 } from 'types/api/widgets/getQuery';
-
-import { DateText } from './styles';
 
 export const transformDataWithDate = (
 	data: QueryDataV3[],
@@ -30,17 +27,16 @@ export const getListColumns = (
 ): ColumnsType<RowData> => {
 	const initialColumns: ColumnsType<RowData> = [
 		{
-			title: 'date',
 			dataIndex: 'date',
 			key: 'date',
+			title: 'Timestamp',
 			width: 145,
-			render: (date: string): JSX.Element => {
-				const day = dayjs(date);
-				return (
-					<DateText data-testid="trace-explorer-date">
-						{day.format('YYYY/MM/DD HH:mm:ss')}
-					</DateText>
-				);
+			render: (item): JSX.Element => {
+				const date =
+					typeof item === 'string'
+						? dayjs(item).format('YYYY-MM-DD HH:mm:ss.SSS')
+						: dayjs(item / 1e6).format('YYYY-MM-DD HH:mm:ss.SSS');
+				return <Typography.Text>{date}</Typography.Text>;
 			},
 		},
 	];
@@ -50,6 +46,7 @@ export const getListColumns = (
 			title: key,
 			dataIndex: key,
 			key: `${key}-${dataType}-${type}`,
+			width: 145,
 			render: (value): JSX.Element => {
 				if (value === '') {
 					return <Typography data-testid={key}>N/A</Typography>;
@@ -69,6 +66,7 @@ export const getListColumns = (
 
 				return <Typography data-testid={key}>{value}</Typography>;
 			},
+			responsive: ['md'],
 		})) || [];
 
 	return [...initialColumns, ...columns];

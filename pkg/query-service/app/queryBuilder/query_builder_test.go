@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	logsV3 "go.signoz.io/signoz/pkg/query-service/app/logs/v3"
 	metricsv3 "go.signoz.io/signoz/pkg/query-service/app/metrics/v3"
+	"go.signoz.io/signoz/pkg/query-service/constants"
 	"go.signoz.io/signoz/pkg/query-service/featureManager"
 	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
 )
@@ -27,6 +28,7 @@ func TestBuildQueryWithMultipleQueriesAndFormula(t *testing.T) {
 							{Key: v3.AttributeKey{Key: "in"}, Value: []interface{}{"a", "b", "c"}, Operator: v3.FilterOperatorIn},
 						}},
 						AggregateOperator: v3.AggregateOperatorRateMax,
+						Temporality:       v3.Cumulative,
 						Expression:        "A",
 					},
 					"B": {
@@ -35,6 +37,7 @@ func TestBuildQueryWithMultipleQueriesAndFormula(t *testing.T) {
 						AggregateAttribute: v3.AttributeKey{Key: "name2"},
 						DataSource:         v3.DataSourceMetrics,
 						AggregateOperator:  v3.AggregateOperatorRateAvg,
+						Temporality:        v3.Cumulative,
 						Expression:         "B",
 					},
 					"C": {
@@ -55,7 +58,7 @@ func TestBuildQueryWithMultipleQueriesAndFormula(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Contains(t, queries["C"], "SELECT A.`ts` as `ts`, A.value / B.value")
-		require.Contains(t, queries["C"], "WHERE metric_name = 'name' AND temporality IN ['Cumulative', 'Unspecified'] AND JSONExtractString(labels, 'in') IN ['a','b','c']")
+		require.Contains(t, queries["C"], "WHERE metric_name = 'name' AND temporality = 'Cumulative' AND unix_milli >= 1650931200000 AND unix_milli < 1651078380000 AND JSONExtractString(labels, 'in') IN ['a','b','c']")
 		require.Contains(t, queries["C"], "(value - lagInFrame(value, 1, 0) OVER rate_window) / (ts - lagInFrame(ts, 1, toDate('1970-01-01')) OVER rate_window)))")
 	})
 }
@@ -257,7 +260,7 @@ func TestDeltaQueryBuilder(t *testing.T) {
 				},
 			},
 			queryToTest: "A",
-			expected:    "SELECT  toStartOfInterval(toDateTime(intDiv(timestamp_ms, 1000)), INTERVAL 60 SECOND) as ts, sum(value)/60 as value FROM signoz_metrics.distributed_samples_v2 INNER JOIN (SELECT  fingerprint FROM signoz_metrics.time_series_v2 WHERE metric_name = 'signoz_latency_count' AND temporality = 'Delta'  AND JSONExtractString(labels, 'service_name') IN ['frontend'] AND JSONExtractString(labels, 'operation') IN ['HTTP GET /dispatch'] AND JSONExtractString(labels, '__temporality__') = 'Delta') as filtered_time_series USING fingerprint WHERE metric_name = 'signoz_latency_count' AND timestamp_ms >= 1650991980000 AND timestamp_ms <= 1651078380000 GROUP BY ts ORDER BY  ts",
+			expected:    "SELECT  toStartOfInterval(toDateTime(intDiv(unix_milli, 1000)), INTERVAL 60 SECOND) as ts, sum(value)/60 as value FROM signoz_metrics.distributed_samples_v4 INNER JOIN (SELECT DISTINCT fingerprint FROM signoz_metrics.time_series_v4_6hrs WHERE metric_name = 'signoz_latency_count' AND temporality = 'Delta' AND unix_milli >= 1650974400000 AND unix_milli < 1651078380000 AND JSONExtractString(labels, 'service_name') IN ['frontend'] AND JSONExtractString(labels, 'operation') IN ['HTTP GET /dispatch'] AND JSONExtractString(labels, '__temporality__') = 'Delta') as filtered_time_series USING fingerprint WHERE metric_name = 'signoz_latency_count' AND unix_milli >= 1650991980000 AND unix_milli <= 1651078380000 GROUP BY ts ORDER BY  ts",
 		},
 		{
 			name: "TestQueryWithExpression - Error rate",
@@ -327,7 +330,7 @@ func TestDeltaQueryBuilder(t *testing.T) {
 				},
 			},
 			queryToTest: "C",
-			expected:    "SELECT A.`ts` as `ts`, A.value * 100 / B.value as value FROM (SELECT  toStartOfInterval(toDateTime(intDiv(timestamp_ms, 1000)), INTERVAL 60 SECOND) as ts, sum(value)/60 as value FROM signoz_metrics.distributed_samples_v2 INNER JOIN (SELECT  fingerprint FROM signoz_metrics.time_series_v2 WHERE metric_name = 'signoz_latency_count' AND temporality = 'Delta'  AND JSONExtractString(labels, 'service_name') IN ['frontend'] AND JSONExtractString(labels, 'operation') IN ['HTTP GET /dispatch'] AND JSONExtractString(labels, 'status_code') IN ['STATUS_CODE_ERROR'] AND JSONExtractString(labels, '__temporality__') = 'Delta') as filtered_time_series USING fingerprint WHERE metric_name = 'signoz_latency_count' AND timestamp_ms >= 1650991980000 AND timestamp_ms <= 1651078380000 GROUP BY ts ORDER BY  ts) as A  INNER JOIN (SELECT  toStartOfInterval(toDateTime(intDiv(timestamp_ms, 1000)), INTERVAL 60 SECOND) as ts, sum(value)/60 as value FROM signoz_metrics.distributed_samples_v2 INNER JOIN (SELECT  fingerprint FROM signoz_metrics.time_series_v2 WHERE metric_name = 'signoz_latency_count' AND temporality = 'Delta'  AND JSONExtractString(labels, 'service_name') IN ['frontend'] AND JSONExtractString(labels, 'operation') IN ['HTTP GET /dispatch'] AND JSONExtractString(labels, '__temporality__') = 'Delta') as filtered_time_series USING fingerprint WHERE metric_name = 'signoz_latency_count' AND timestamp_ms >= 1650991980000 AND timestamp_ms <= 1651078380000 GROUP BY ts ORDER BY  ts) as B  ON A.`ts` = B.`ts`",
+			expected:    "SELECT A.`ts` as `ts`, A.value * 100 / B.value as value FROM (SELECT  toStartOfInterval(toDateTime(intDiv(unix_milli, 1000)), INTERVAL 60 SECOND) as ts, sum(value)/60 as value FROM signoz_metrics.distributed_samples_v4 INNER JOIN (SELECT DISTINCT fingerprint FROM signoz_metrics.time_series_v4_6hrs WHERE metric_name = 'signoz_latency_count' AND temporality = 'Delta' AND unix_milli >= 1650974400000 AND unix_milli < 1651078380000 AND JSONExtractString(labels, 'service_name') IN ['frontend'] AND JSONExtractString(labels, 'operation') IN ['HTTP GET /dispatch'] AND JSONExtractString(labels, 'status_code') IN ['STATUS_CODE_ERROR'] AND JSONExtractString(labels, '__temporality__') = 'Delta') as filtered_time_series USING fingerprint WHERE metric_name = 'signoz_latency_count' AND unix_milli >= 1650991980000 AND unix_milli <= 1651078380000 GROUP BY ts ORDER BY  ts) as A  INNER JOIN (SELECT  toStartOfInterval(toDateTime(intDiv(unix_milli, 1000)), INTERVAL 60 SECOND) as ts, sum(value)/60 as value FROM signoz_metrics.distributed_samples_v4 INNER JOIN (SELECT DISTINCT fingerprint FROM signoz_metrics.time_series_v4_6hrs WHERE metric_name = 'signoz_latency_count' AND temporality = 'Delta' AND unix_milli >= 1650974400000 AND unix_milli < 1651078380000 AND JSONExtractString(labels, 'service_name') IN ['frontend'] AND JSONExtractString(labels, 'operation') IN ['HTTP GET /dispatch'] AND JSONExtractString(labels, '__temporality__') = 'Delta') as filtered_time_series USING fingerprint WHERE metric_name = 'signoz_latency_count' AND unix_milli >= 1650991980000 AND unix_milli <= 1651078380000 GROUP BY ts ORDER BY  ts) as B  ON A.`ts` = B.`ts`",
 		},
 		{
 			name: "TestQuery - Quantile",
@@ -348,13 +351,14 @@ func TestDeltaQueryBuilder(t *testing.T) {
 							Temporality:        v3.Delta,
 							GroupBy: []v3.AttributeKey{
 								{Key: "service_name"},
+								{Key: "le"},
 							},
 						},
 					},
 				},
 			},
 			queryToTest: "A",
-			expected:    "SELECT service_name,  ts, histogramQuantile(arrayMap(x -> toFloat64(x), groupArray(le)), groupArray(value), 0.950) as value FROM (SELECT service_name,le,  toStartOfInterval(toDateTime(intDiv(timestamp_ms, 1000)), INTERVAL 60 SECOND) as ts, sum(value)/60 as value FROM signoz_metrics.distributed_samples_v2 INNER JOIN (SELECT  JSONExtractString(labels, 'service_name') as service_name, JSONExtractString(labels, 'le') as le, fingerprint FROM signoz_metrics.time_series_v2 WHERE metric_name = 'signoz_latency_bucket' AND temporality = 'Delta' ) as filtered_time_series USING fingerprint WHERE metric_name = 'signoz_latency_bucket' AND timestamp_ms >= 1650991980000 AND timestamp_ms <= 1651078380000 GROUP BY service_name,le,ts ORDER BY service_name ASC,le ASC, ts) GROUP BY service_name,ts ORDER BY service_name ASC, ts",
+			expected:    "SELECT service_name,  ts, histogramQuantile(arrayMap(x -> toFloat64(x), groupArray(le)), groupArray(value), 0.950) as value FROM (SELECT service_name,le,  toStartOfInterval(toDateTime(intDiv(unix_milli, 1000)), INTERVAL 60 SECOND) as ts, sum(value)/60 as value FROM signoz_metrics.distributed_samples_v4 INNER JOIN (SELECT DISTINCT JSONExtractString(labels, 'service_name') as service_name, JSONExtractString(labels, 'le') as le, fingerprint FROM signoz_metrics.time_series_v4_6hrs WHERE metric_name = 'signoz_latency_bucket' AND temporality = 'Delta' AND unix_milli >= 1650974400000 AND unix_milli < 1651078380000) as filtered_time_series USING fingerprint WHERE metric_name = 'signoz_latency_bucket' AND unix_milli >= 1650991980000 AND unix_milli <= 1651078380000 GROUP BY service_name,le,ts ORDER BY service_name ASC,le ASC, ts) GROUP BY service_name,ts ORDER BY service_name ASC, ts",
 		},
 	}
 
@@ -554,10 +558,10 @@ var testLogsWithFormula = []struct {
 			},
 		},
 		ExpectedQuery: "SELECT A.`key1.1` as `key1.1`, A.`ts` as `ts`, A.value - B.value as value FROM (SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL 60 SECOND) AS ts, " +
-			"attribute_bool_key1$$1 as `key1.1`, toFloat64(count(*)) as value from signoz_logs.distributed_logs where (timestamp >= 1702980884000000000 AND timestamp <= 1702984484000000000) AND " +
-			"attribute_bool_key_2 = true AND attribute_bool_key1$$1_exists=true group by `key1.1`,ts order by value DESC) as A  INNER JOIN (SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), " +
-			"INTERVAL 60 SECOND) AS ts, attribute_bool_key1$$1 as `key1.1`, toFloat64(count(*)) as value from signoz_logs.distributed_logs where (timestamp >= 1702980884000000000 AND " +
-			"timestamp <= 1702984484000000000) AND attributes_bool_value[indexOf(attributes_bool_key, 'key_1')] = true AND attribute_bool_key1$$1_exists=true group by `key1.1`,ts order by value DESC) as B  " +
+			"`attribute_bool_key1$$1` as `key1.1`, toFloat64(count(*)) as value from signoz_logs.distributed_logs where (timestamp >= 1702980884000000000 AND timestamp <= 1702984484000000000) AND " +
+			"`attribute_bool_key_2` = true AND `attribute_bool_key1$$1_exists`=true group by `key1.1`,ts order by value DESC) as A  INNER JOIN (SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), " +
+			"INTERVAL 60 SECOND) AS ts, `attribute_bool_key1$$1` as `key1.1`, toFloat64(count(*)) as value from signoz_logs.distributed_logs where (timestamp >= 1702980884000000000 AND " +
+			"timestamp <= 1702984484000000000) AND attributes_bool_value[indexOf(attributes_bool_key, 'key_1')] = true AND `attribute_bool_key1$$1_exists`=true group by `key1.1`,ts order by value DESC) as B  " +
 			"ON A.`key1.1` = B.`key1.1` AND A.`ts` = B.`ts`",
 	},
 }
@@ -579,4 +583,663 @@ func TestLogsQueryWithFormula(t *testing.T) {
 		})
 	}
 
+}
+
+func TestGenerateCacheKeysMetricsBuilder(t *testing.T) {
+	testCases := []struct {
+		name              string
+		query             *v3.QueryRangeParamsV3
+		expectedCacheKeys map[string]string
+	}{
+		// v3 - only the graph builder queries can be cached
+		{
+			name: "version=v3;panelType=graph;dataSource=metrics;queryType=builder",
+			query: &v3.QueryRangeParamsV3{
+				Version: "v3",
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeGraph,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceMetrics,
+							AggregateOperator:  v3.AggregateOperatorSumRate,
+							AggregateAttribute: v3.AttributeKey{Key: "signoz_latency_bucket"},
+							Temporality:        v3.Delta,
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "le"},
+							},
+							Expression: "A",
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "source=metrics&step=60&aggregate=sum_rate&timeAggregation=&spaceAggregation=&aggregateAttribute=signoz_latency_bucket---false&filter-0=key:service_name---false,op:=,value:A&groupBy-0=service_name---false&groupBy-1=le---false&having-0=column:value,op:>,value:100",
+			},
+		},
+		{
+			name: "version=v3;panelType=graph;dataSource=metrics;queryType=builder with limit", // limit should not be part of the cache key
+			query: &v3.QueryRangeParamsV3{
+				Version: "v3",
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeGraph,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceMetrics,
+							AggregateOperator:  v3.AggregateOperatorSumRate,
+							AggregateAttribute: v3.AttributeKey{Key: "signoz_latency_bucket"},
+							Temporality:        v3.Delta,
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "le"},
+							},
+							Expression: "A",
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+							Limit: 10,
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "source=metrics&step=60&aggregate=sum_rate&timeAggregation=&spaceAggregation=&aggregateAttribute=signoz_latency_bucket---false&filter-0=key:service_name---false,op:=,value:A&groupBy-0=service_name---false&groupBy-1=le---false&having-0=column:value,op:>,value:100",
+			},
+		},
+		{
+			name: "version=v3;panelType=graph;dataSource=metrics;queryType=builder with shiftBy", // shiftBy should be part of the cache key
+			query: &v3.QueryRangeParamsV3{
+				Version: "v3",
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeGraph,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceMetrics,
+							AggregateOperator:  v3.AggregateOperatorSumRate,
+							AggregateAttribute: v3.AttributeKey{Key: "signoz_latency_bucket"},
+							Temporality:        v3.Delta,
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "le"},
+							},
+							Expression: "A",
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+							Limit:   10,
+							ShiftBy: 86400,
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "source=metrics&step=60&aggregate=sum_rate&timeAggregation=&spaceAggregation=&shiftBy=86400&aggregateAttribute=signoz_latency_bucket---false&filter-0=key:service_name---false,op:=,value:A&groupBy-0=service_name---false&groupBy-1=le---false&having-0=column:value,op:>,value:100",
+			},
+		},
+		{
+			name: "version=v3;panelType=value;dataSource=metrics;queryType=builder",
+			query: &v3.QueryRangeParamsV3{
+				Version: "v3",
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeValue,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceMetrics,
+							AggregateOperator:  v3.AggregateOperatorSumRate,
+							Expression:         "A",
+							AggregateAttribute: v3.AttributeKey{Key: "signoz_latency_bucket"},
+							Temporality:        v3.Delta,
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "le"},
+							},
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+							ReduceTo: v3.ReduceToOperatorAvg,
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{},
+		},
+		{
+			name: "version=v3;panelType=table;dataSource=metrics;queryType=builder",
+			query: &v3.QueryRangeParamsV3{
+				Version: "v3",
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeTable,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceMetrics,
+							AggregateOperator:  v3.AggregateOperatorSumRate,
+							Expression:         "A",
+							AggregateAttribute: v3.AttributeKey{Key: "signoz_latency_bucket"},
+							Temporality:        v3.Delta,
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "le"},
+							},
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{},
+		},
+
+		// v4 - everything can be cached
+		{
+			name: "version=v4;panelType=graph;dataSource=metrics;queryType=builder",
+			query: &v3.QueryRangeParamsV3{
+				Version: "v4",
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeGraph,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceMetrics,
+							AggregateOperator:  v3.AggregateOperatorSumRate,
+							AggregateAttribute: v3.AttributeKey{Key: "signoz_latency_bucket"},
+							Temporality:        v3.Delta,
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "le"},
+							},
+							Expression: "A",
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "source=metrics&step=60&aggregate=sum_rate&timeAggregation=&spaceAggregation=&aggregateAttribute=signoz_latency_bucket---false&filter-0=key:service_name---false,op:=,value:A&groupBy-0=service_name---false&groupBy-1=le---false&having-0=column:value,op:>,value:100",
+			},
+		},
+		{
+			name: "version=v4;panelType=graph;dataSource=metrics;queryType=builder with limit", // limit should not be part of the cache key
+			query: &v3.QueryRangeParamsV3{
+				Version: "v4",
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeGraph,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceMetrics,
+							AggregateOperator:  v3.AggregateOperatorSumRate,
+							AggregateAttribute: v3.AttributeKey{Key: "signoz_latency_bucket"},
+							Temporality:        v3.Delta,
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "le"},
+							},
+							Expression: "A",
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+							Limit: 10,
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "source=metrics&step=60&aggregate=sum_rate&timeAggregation=&spaceAggregation=&aggregateAttribute=signoz_latency_bucket---false&filter-0=key:service_name---false,op:=,value:A&groupBy-0=service_name---false&groupBy-1=le---false&having-0=column:value,op:>,value:100",
+			},
+		},
+		{
+			name: "version=v4;panelType=graph;dataSource=metrics;queryType=builder with shiftBy", // shiftBy should be part of the cache key
+			query: &v3.QueryRangeParamsV3{
+				Version: "v4",
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeGraph,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceMetrics,
+							AggregateOperator:  v3.AggregateOperatorSumRate,
+							AggregateAttribute: v3.AttributeKey{Key: "signoz_latency_bucket"},
+							Temporality:        v3.Delta,
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "le"},
+							},
+							Expression: "A",
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+							Limit:   10,
+							ShiftBy: 86400,
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "source=metrics&step=60&aggregate=sum_rate&timeAggregation=&spaceAggregation=&shiftBy=86400&aggregateAttribute=signoz_latency_bucket---false&filter-0=key:service_name---false,op:=,value:A&groupBy-0=service_name---false&groupBy-1=le---false&having-0=column:value,op:>,value:100",
+			},
+		},
+		{
+			name: "version=v4;panelType=value;dataSource=metrics;queryType=builder",
+			query: &v3.QueryRangeParamsV3{
+				Version: "v4",
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeValue,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceMetrics,
+							AggregateOperator:  v3.AggregateOperatorSumRate,
+							Expression:         "A",
+							AggregateAttribute: v3.AttributeKey{Key: "signoz_latency_bucket"},
+							Temporality:        v3.Delta,
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "le"},
+							},
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+							ReduceTo: v3.ReduceToOperatorAvg,
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "source=metrics&step=60&aggregate=sum_rate&timeAggregation=&spaceAggregation=&aggregateAttribute=signoz_latency_bucket---false&filter-0=key:service_name---false,op:=,value:A&groupBy-0=service_name---false&groupBy-1=le---false&having-0=column:value,op:>,value:100",
+			},
+		},
+		{
+			name: "version=v4;panelType=table;dataSource=metrics;queryType=builder",
+			query: &v3.QueryRangeParamsV3{
+				Version: "v4",
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeTable,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceMetrics,
+							AggregateOperator:  v3.AggregateOperatorSumRate,
+							Expression:         "A",
+							AggregateAttribute: v3.AttributeKey{Key: "signoz_latency_bucket"},
+							Temporality:        v3.Delta,
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "le"},
+							},
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "source=metrics&step=60&aggregate=sum_rate&timeAggregation=&spaceAggregation=&aggregateAttribute=signoz_latency_bucket---false&filter-0=key:service_name---false,op:=,value:A&groupBy-0=service_name---false&groupBy-1=le---false&having-0=column:value,op:>,value:100",
+			},
+		},
+	}
+
+	keyGen := NewKeyGenerator()
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			cacheKeys := keyGen.GenerateKeys(test.query)
+			require.Equal(t, test.expectedCacheKeys, cacheKeys)
+		})
+	}
+}
+
+func TestGenerateCacheKeysLogs(t *testing.T) {
+	testCases := []struct {
+		name              string
+		query             *v3.QueryRangeParamsV3
+		expectedCacheKeys map[string]string
+	}{
+		{
+			name: "panelType=graph;dataSource=logs;queryType=builder",
+			query: &v3.QueryRangeParamsV3{
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeGraph,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceLogs,
+							AggregateOperator:  v3.AggregateOperatorCount,
+							AggregateAttribute: v3.AttributeKey{Key: "log_level"},
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "log_level"},
+							},
+							Expression: "A",
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "source=logs&step=60&aggregate=count&limit=0&aggregateAttribute=log_level---false&filter-0=key:service_name---false,op:=,value:A&groupBy-0=service_name---false&groupBy-1=log_level---false&orderBy-0=#SIGNOZ_VALUE-desc&having-0=column:value,op:>,value:100",
+			},
+		},
+		{
+			name: "panelType=table;dataSource=logs;queryType=builder",
+			query: &v3.QueryRangeParamsV3{
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeTable,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceLogs,
+							AggregateOperator:  v3.AggregateOperatorCount,
+							AggregateAttribute: v3.AttributeKey{Key: "log_level"},
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							GroupBy: []v3.AttributeKey{
+								{Key: "service_name"},
+								{Key: "log_level"},
+							},
+							Expression: "A",
+							Having: []v3.Having{
+								{
+									ColumnName: "value",
+									Operator:   v3.HavingOperatorGreaterThan,
+									Value:      100,
+								},
+							},
+							OrderBy: []v3.OrderBy{
+								{ColumnName: constants.SigNozOrderByValue, Order: "desc"},
+							},
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{},
+		},
+		{
+			name: "panelType=value;dataSource=logs;queryType=builder",
+			query: &v3.QueryRangeParamsV3{
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeValue,
+					QueryType: v3.QueryTypeBuilder,
+					BuilderQueries: map[string]*v3.BuilderQuery{
+						"A": {
+							QueryName:          "A",
+							StepInterval:       60,
+							DataSource:         v3.DataSourceLogs,
+							AggregateOperator:  v3.AggregateOperatorCount,
+							AggregateAttribute: v3.AttributeKey{Key: "log_level"},
+							Filters: &v3.FilterSet{
+								Operator: "AND",
+								Items: []v3.FilterItem{
+									{Key: v3.AttributeKey{Key: "service_name"}, Value: "A", Operator: v3.FilterOperatorEqual},
+								},
+							},
+							Expression: "A",
+							Limit:      10,
+							ReduceTo:   v3.ReduceToOperatorAvg,
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{},
+		},
+	}
+
+	keyGen := NewKeyGenerator()
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			cacheKeys := keyGen.GenerateKeys(test.query)
+			require.Equal(t, test.expectedCacheKeys, cacheKeys)
+		})
+	}
+}
+
+func TestGenerateCacheKeysMetricsPromQL(t *testing.T) {
+	// there is no version difference between v3 and v4 for promql
+	testCases := []struct {
+		name              string
+		query             *v3.QueryRangeParamsV3
+		expectedCacheKeys map[string]string
+	}{
+		{
+			name: "panelType=graph;dataSource=metrics;queryType=promql",
+			query: &v3.QueryRangeParamsV3{
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeGraph,
+					QueryType: v3.QueryTypePromQL,
+					PromQueries: map[string]*v3.PromQuery{
+						"A": {
+							Query: "signoz_latency_bucket",
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "signoz_latency_bucket",
+			},
+		},
+		{
+			name: "panelType=graph;dataSource=metrics;queryType=promql",
+			query: &v3.QueryRangeParamsV3{
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeGraph,
+					QueryType: v3.QueryTypePromQL,
+					PromQueries: map[string]*v3.PromQuery{
+						"A": {
+							Query: "histogram_quantile(0.9, sum(rate(signoz_latency_bucket[1m])) by (le))",
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{
+				"A": "histogram_quantile(0.9, sum(rate(signoz_latency_bucket[1m])) by (le))",
+			},
+		},
+		{
+			name: "panelType=value;dataSource=metrics;queryType=promql",
+			query: &v3.QueryRangeParamsV3{
+				CompositeQuery: &v3.CompositeQuery{
+					PanelType: v3.PanelTypeValue,
+					QueryType: v3.QueryTypePromQL,
+					PromQueries: map[string]*v3.PromQuery{
+						"A": {
+							Query: "histogram_quantile(0.9, sum(rate(signoz_latency_bucket[1m])) by (le))",
+						},
+					},
+				},
+			},
+			expectedCacheKeys: map[string]string{},
+		},
+	}
+
+	keyGen := NewKeyGenerator()
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			cacheKeys := keyGen.GenerateKeys(test.query)
+			require.Equal(t, test.expectedCacheKeys, cacheKeys)
+		})
+	}
 }

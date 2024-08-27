@@ -51,6 +51,8 @@ var logOperators = map[v3.FilterOperator]string{
 	v3.FilterOperatorNotExists:       "not has(%s_%s_key, '%s')",
 }
 
+const BODY = "body"
+
 func getClickhouseLogsColumnType(columnType v3.AttributeKeyType) string {
 	if columnType == v3.AttributeKeyTypeTag {
 		return "attributes"
@@ -150,7 +152,7 @@ func GetExistsNexistsFilter(op v3.FilterOperator, item v3.FilterItem) string {
 		if op == v3.FilterOperatorNotExists {
 			val = false
 		}
-		return fmt.Sprintf("%s_exists=%v", getClickhouseColumnName(item.Key), val)
+		return fmt.Sprintf("%s_exists`=%v", strings.TrimSuffix(getClickhouseColumnName(item.Key), "`"), val)
 	}
 	columnType := getClickhouseLogsColumnType(item.Key.Type)
 	columnDataType := getClickhouseLogsColumnDataType(item.Key.DataType)
@@ -192,10 +194,25 @@ func buildLogsTimeSeriesFilterQuery(fs *v3.FilterSet, groupBy []v3.AttributeKey,
 					conditions = append(conditions, fmt.Sprintf(logsOp, columnName, fmtVal))
 				case v3.FilterOperatorContains, v3.FilterOperatorNotContains:
 					columnName := getClickhouseColumnName(item.Key)
-					conditions = append(conditions, fmt.Sprintf("%s %s '%%%s%%'", columnName, logsOp, item.Value))
+					val := utils.QuoteEscapedString(fmt.Sprintf("%v", item.Value))
+					if columnName == BODY {
+						logsOp = strings.Replace(logsOp, "ILIKE", "LIKE", 1) // removing i from ilike and not ilike
+						conditions = append(conditions, fmt.Sprintf("lower(%s) %s lower('%%%s%%')", columnName, logsOp, val))
+					} else {
+						conditions = append(conditions, fmt.Sprintf("%s %s '%%%s%%'", columnName, logsOp, val))
+					}
 				default:
 					columnName := getClickhouseColumnName(item.Key)
 					fmtVal := utils.ClickHouseFormattedValue(value)
+
+					// for use lower for like and ilike
+					if op == v3.FilterOperatorLike || op == v3.FilterOperatorNotLike {
+						if columnName == BODY {
+							logsOp = strings.Replace(logsOp, "ILIKE", "LIKE", 1) // removing i from ilike and not ilike
+							columnName = fmt.Sprintf("lower(%s)", columnName)
+							fmtVal = fmt.Sprintf("lower(%s)", fmtVal)
+						}
+					}
 					conditions = append(conditions, fmt.Sprintf("%s %s %s", columnName, logsOp, fmtVal))
 				}
 			} else {
@@ -212,7 +229,7 @@ func buildLogsTimeSeriesFilterQuery(fs *v3.FilterSet, groupBy []v3.AttributeKey,
 			conditions = append(conditions, fmt.Sprintf("has(%s_%s_key, '%s')", columnType, columnDataType, attr.Key))
 		} else if attr.Type != v3.AttributeKeyTypeUnspecified {
 			// for materialzied columns
-			conditions = append(conditions, fmt.Sprintf("%s_exists=true", getClickhouseColumnName(attr)))
+			conditions = append(conditions, fmt.Sprintf("%s_exists`=true", strings.TrimSuffix(getClickhouseColumnName(attr), "`")))
 		}
 	}
 
@@ -252,6 +269,8 @@ func buildLogsQuery(panelType v3.PanelType, start, end, step int64, mq *v3.Build
 	} else if panelType == v3.PanelTypeTable {
 		queryTmpl =
 			"SELECT now() as ts,"
+		// step or aggregate interval is whole time period in case of table panel
+		step = (utils.GetEpochNanoSecs(end) - utils.GetEpochNanoSecs(start)) / 1000000000
 	} else if panelType == v3.PanelTypeGraph || panelType == v3.PanelTypeValue {
 		// Select the aggregate value for interval
 		queryTmpl =
@@ -397,7 +416,10 @@ func orderBy(panelType v3.PanelType, items []v3.OrderBy, tagLookup map[string]st
 		} else if panelType == v3.PanelTypeList {
 			attr := v3.AttributeKey{Key: item.ColumnName, DataType: item.DataType, Type: item.Type, IsColumn: item.IsColumn}
 			name := getClickhouseColumnName(attr)
-			orderBy = append(orderBy, fmt.Sprintf("`%s` %s", name, item.Order))
+			if item.IsColumn {
+				name = "`" + name + "`"
+			}
+			orderBy = append(orderBy, fmt.Sprintf("%s %s", name, item.Order))
 		}
 	}
 	return orderBy
@@ -471,7 +493,7 @@ type Options struct {
 }
 
 func isOrderByTs(orderBy []v3.OrderBy) bool {
-	if len(orderBy) == 1 && orderBy[0].Key == constants.TIMESTAMP {
+	if len(orderBy) == 1 && (orderBy[0].Key == constants.TIMESTAMP || orderBy[0].ColumnName == constants.TIMESTAMP) {
 		return true
 	}
 	return false

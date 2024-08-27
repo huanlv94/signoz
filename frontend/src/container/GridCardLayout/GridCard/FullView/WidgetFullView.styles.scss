@@ -10,12 +10,20 @@
 	.graph-container {
 		height: calc(60% - 40px);
 		min-height: 300px;
-		border: 1px solid #333;
 		width: 100%;
 		padding: 12px;
 		box-sizing: border-box;
 		margin: 16px 0;
 		border-radius: 3px;
+	}
+
+	.height-widget {
+		height: calc(100% - 40px);
+	}
+
+	.list-graph-container {
+		height: calc(100% - 40px);
+		overflow-y: auto;
 	}
 
 	.disabled {

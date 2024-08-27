@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"fmt"
 	"sync"
 	"time"
 
@@ -259,7 +258,7 @@ func (agent *Agent) processStatusUpdate(
 	// If remote config is changed and different from what the Agent has then
 	// send the new remote config to the Agent.
 	if configChanged ||
-		(agent.Status.RemoteConfigStatus != nil &&
+		(agent.Status.RemoteConfigStatus != nil && agent.remoteConfig != nil &&
 			!bytes.Equal(agent.Status.RemoteConfigStatus.LastRemoteConfigHash, agent.remoteConfig.ConfigHash)) {
 		// The new status resulted in a change in the config of the Agent or the Agent
 		// does not have this config (hash is different). Send the new config the Agent.
@@ -277,8 +276,8 @@ func (agent *Agent) processStatusUpdate(
 func (agent *Agent) updateRemoteConfig(configProvider AgentConfigProvider) bool {
 	recommendedConfig, confId, err := configProvider.RecommendAgentConfig([]byte(agent.EffectiveConfig))
 	if err != nil {
-		// The server must always recommend a config.
-		panic(fmt.Errorf("could not generate config recommendation for agent %s: %w", agent.ID, err))
+		zap.L().Error("could not generate config recommendation for agent", zap.String("agentID", agent.ID), zap.Error(err))
+		return false
 	}
 
 	cfg := protobufs.AgentRemoteConfig{
@@ -294,7 +293,7 @@ func (agent *Agent) updateRemoteConfig(configProvider AgentConfigProvider) bool 
 
 	if len(confId) < 1 {
 		// Should never happen. Handle gracefully if it does by some chance.
-		zap.S().Errorf("config provider recommended a config with empty confId. Using content hash for configId")
+		zap.L().Error("config provider recommended a config with empty confId. Using content hash for configId")
 
 		hash := sha256.New()
 		for k, v := range cfg.Config.ConfigMap {

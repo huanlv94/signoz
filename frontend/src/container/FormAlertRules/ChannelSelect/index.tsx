@@ -1,25 +1,27 @@
 import { Select } from 'antd';
-import getChannels from 'api/channels/getAll';
-import useFetch from 'hooks/useFetch';
+import { State } from 'hooks/useFetch';
 import { useNotifications } from 'hooks/useNotifications';
 import { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { PayloadProps } from 'types/api/channels/getAll';
 
 import { StyledSelect } from './styles';
 
 export interface ChannelSelectProps {
+	disabled?: boolean;
 	currentValue?: string[];
 	onSelectChannels: (s: string[]) => void;
+	channels: State<PayloadProps | undefined>;
 }
 
 function ChannelSelect({
+	disabled,
 	currentValue,
 	onSelectChannels,
+	channels,
 }: ChannelSelectProps): JSX.Element | null {
 	// init namespace for translations
 	const { t } = useTranslation('alerts');
-
-	const { loading, payload, error, errorMessage } = useFetch(getChannels);
 
 	const { notifications } = useNotifications();
 
@@ -27,20 +29,24 @@ function ChannelSelect({
 		onSelectChannels(value);
 	};
 
-	if (error && errorMessage !== '') {
+	if (channels.error && channels.errorMessage !== '') {
 		notifications.error({
 			message: 'Error',
-			description: errorMessage,
+			description: channels.errorMessage,
 		});
 	}
 	const renderOptions = (): ReactNode[] => {
 		const children: ReactNode[] = [];
 
-		if (loading || payload === undefined || payload.length === 0) {
+		if (
+			channels.loading ||
+			channels.payload === undefined ||
+			channels.payload.length === 0
+		) {
 			return children;
 		}
 
-		payload.forEach((o) => {
+		channels.payload.forEach((o) => {
 			children.push(
 				<Select.Option key={o.id} value={o.name}>
 					{o.name}
@@ -52,7 +58,8 @@ function ChannelSelect({
 	};
 	return (
 		<StyledSelect
-			status={error ? 'error' : ''}
+			disabled={disabled}
+			status={channels.error ? 'error' : ''}
 			mode="multiple"
 			style={{ width: '100%' }}
 			placeholder={t('placeholder_channel_select')}
@@ -68,6 +75,7 @@ function ChannelSelect({
 }
 
 ChannelSelect.defaultProps = {
+	disabled: false,
 	currentValue: [],
 };
 export default ChannelSelect;

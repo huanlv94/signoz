@@ -11,6 +11,7 @@ const Enterprise = "ENTERPRISE_PLAN"
 const DisableUpsell = "DISABLE_UPSELL"
 const Onboarding = "ONBOARDING"
 const ChatSupport = "CHAT_SUPPORT"
+const Gateway = "GATEWAY"
 
 var BasicPlan = basemodel.FeatureSet{
 	basemodel.Feature{
@@ -52,14 +53,14 @@ var BasicPlan = basemodel.FeatureSet{
 		Name:       basemodel.QueryBuilderPanels,
 		Active:     true,
 		Usage:      0,
-		UsageLimit: 20,
+		UsageLimit: -1,
 		Route:      "",
 	},
 	basemodel.Feature{
 		Name:       basemodel.QueryBuilderAlerts,
 		Active:     true,
 		Usage:      0,
-		UsageLimit: 10,
+		UsageLimit: -1,
 		Route:      "",
 	},
 	basemodel.Feature{
@@ -91,6 +92,13 @@ var BasicPlan = basemodel.FeatureSet{
 		Route:      "",
 	},
 	basemodel.Feature{
+		Name:       basemodel.AlertChannelEmail,
+		Active:     true,
+		Usage:      0,
+		UsageLimit: -1,
+		Route:      "",
+	},
+	basemodel.Feature{
 		Name:       basemodel.AlertChannelMsTeams,
 		Active:     false,
 		Usage:      0,
@@ -99,6 +107,13 @@ var BasicPlan = basemodel.FeatureSet{
 	},
 	basemodel.Feature{
 		Name:       basemodel.UseSpanMetrics,
+		Active:     false,
+		Usage:      0,
+		UsageLimit: -1,
+		Route:      "",
+	},
+	basemodel.Feature{
+		Name:       Gateway,
 		Active:     false,
 		Usage:      0,
 		UsageLimit: -1,
@@ -178,6 +193,13 @@ var ProPlan = basemodel.FeatureSet{
 		Route:      "",
 	},
 	basemodel.Feature{
+		Name:       basemodel.AlertChannelEmail,
+		Active:     true,
+		Usage:      0,
+		UsageLimit: -1,
+		Route:      "",
+	},
+	basemodel.Feature{
 		Name:       basemodel.AlertChannelMsTeams,
 		Active:     true,
 		Usage:      0,
@@ -187,6 +209,13 @@ var ProPlan = basemodel.FeatureSet{
 	basemodel.Feature{
 		Name:       basemodel.UseSpanMetrics,
 		Active:     false,
+		Usage:      0,
+		UsageLimit: -1,
+		Route:      "",
+	},
+	basemodel.Feature{
+		Name:       Gateway,
+		Active:     true,
 		Usage:      0,
 		UsageLimit: -1,
 		Route:      "",
@@ -265,6 +294,13 @@ var EnterprisePlan = basemodel.FeatureSet{
 		Route:      "",
 	},
 	basemodel.Feature{
+		Name:       basemodel.AlertChannelEmail,
+		Active:     true,
+		Usage:      0,
+		UsageLimit: -1,
+		Route:      "",
+	},
+	basemodel.Feature{
 		Name:       basemodel.AlertChannelMsTeams,
 		Active:     true,
 		Usage:      0,
@@ -279,17 +315,24 @@ var EnterprisePlan = basemodel.FeatureSet{
 		Route:      "",
 	},
 	basemodel.Feature{
-		Name: Onboarding,
-		Active: true,
-		Usage: 0,
+		Name:       Onboarding,
+		Active:     true,
+		Usage:      0,
 		UsageLimit: -1,
-		Route: "",
+		Route:      "",
 	},
 	basemodel.Feature{
-		Name: ChatSupport,
-		Active: true,
-		Usage: 0,
+		Name:       ChatSupport,
+		Active:     true,
+		Usage:      0,
 		UsageLimit: -1,
-		Route: "",
+		Route:      "",
+	},
+	basemodel.Feature{
+		Name:       Gateway,
+		Active:     true,
+		Usage:      0,
+		UsageLimit: -1,
+		Route:      "",
 	},
 }

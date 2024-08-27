@@ -1,15 +1,18 @@
 package app
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	_ "net/http/pprof" // http profiler
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/gorilla/handlers"
@@ -20,11 +23,14 @@ import (
 	"github.com/soheilhy/cmux"
 	"go.signoz.io/signoz/ee/query-service/app/api"
 	"go.signoz.io/signoz/ee/query-service/app/db"
+	"go.signoz.io/signoz/ee/query-service/auth"
 	"go.signoz.io/signoz/ee/query-service/constants"
 	"go.signoz.io/signoz/ee/query-service/dao"
+	"go.signoz.io/signoz/ee/query-service/integrations/gateway"
 	"go.signoz.io/signoz/ee/query-service/interfaces"
-	"go.signoz.io/signoz/pkg/query-service/auth"
-	baseInterface "go.signoz.io/signoz/pkg/query-service/interfaces"
+	baseauth "go.signoz.io/signoz/pkg/query-service/auth"
+	"go.signoz.io/signoz/pkg/query-service/migrate"
+	"go.signoz.io/signoz/pkg/query-service/model"
 	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
 
 	licensepkg "go.signoz.io/signoz/ee/query-service/license"
@@ -34,10 +40,11 @@ import (
 	baseapp "go.signoz.io/signoz/pkg/query-service/app"
 	"go.signoz.io/signoz/pkg/query-service/app/dashboards"
 	baseexplorer "go.signoz.io/signoz/pkg/query-service/app/explorer"
+	"go.signoz.io/signoz/pkg/query-service/app/integrations"
 	"go.signoz.io/signoz/pkg/query-service/app/logparsingpipeline"
 	"go.signoz.io/signoz/pkg/query-service/app/opamp"
 	opAmpModel "go.signoz.io/signoz/pkg/query-service/app/opamp/model"
-	baseauth "go.signoz.io/signoz/pkg/query-service/auth"
+	"go.signoz.io/signoz/pkg/query-service/app/preferences"
 	"go.signoz.io/signoz/pkg/query-service/cache"
 	baseconst "go.signoz.io/signoz/pkg/query-service/constants"
 	"go.signoz.io/signoz/pkg/query-service/healthcheck"
@@ -61,7 +68,6 @@ type ServerOptions struct {
 	// alert specific params
 	DisableRules      bool
 	RuleRepoURL       string
-	PreferDelta       bool
 	PreferSpanMetrics bool
 	MaxIdleConns      int
 	MaxOpenConns      int
@@ -69,14 +75,13 @@ type ServerOptions struct {
 	CacheConfigPath   string
 	FluxInterval      string
 	Cluster           string
+	GatewayUrl        string
 }
 
 // Server runs HTTP api service
 type Server struct {
 	serverOptions *ServerOptions
-	conn          net.Listener
 	ruleManager   *rules.Manager
-	separatePorts bool
 
 	// public http router
 	httpConn   net.Listener
@@ -85,9 +90,6 @@ type Server struct {
 	// private http
 	privateConn net.Listener
 	privateHTTP *http.Server
-
-	// feature flags
-	featureLookup baseint.FeatureLookup
 
 	// Usage manager
 	usageManager *usage.Manager
@@ -112,6 +114,10 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 
 	baseexplorer.InitWithDSN(baseconst.RELATIONAL_DATASOURCE_PATH)
 
+	if err := preferences.InitDB(baseconst.RELATIONAL_DATASOURCE_PATH); err != nil {
+		return nil, err
+	}
+
 	localDB, err := dashboards.InitDB(baseconst.RELATIONAL_DATASOURCE_PATH)
 
 	if err != nil {
@@ -119,6 +125,11 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 	}
 
 	localDB.SetMaxOpenConns(10)
+
+	gatewayProxy, err := gateway.NewProxy(serverOptions.GatewayUrl, gateway.RoutePrefix)
+	if err != nil {
+		return nil, err
+	}
 
 	// initiate license manager
 	lm, err := licensepkg.StartManager("sqlite", localDB)
@@ -133,7 +144,7 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 	var reader interfaces.DataConnector
 	storage := os.Getenv("STORAGE")
 	if storage == "clickhouse" {
-		zap.S().Info("Using ClickHouse as datastore ...")
+		zap.L().Info("Using ClickHouse as datastore ...")
 		qb := db.NewDataConnector(
 			localDB,
 			serverOptions.PromConfigPath,
@@ -170,14 +181,30 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 		return nil, err
 	}
 
+	go func() {
+		err = migrate.ClickHouseMigrate(reader.GetConn(), serverOptions.Cluster)
+		if err != nil {
+			zap.L().Error("error while running clickhouse migrations", zap.Error(err))
+		}
+	}()
+
 	// initiate opamp
-	_, err = opAmpModel.InitDB(baseconst.RELATIONAL_DATASOURCE_PATH)
+	_, err = opAmpModel.InitDB(localDB)
 	if err != nil {
 		return nil, err
 	}
 
+	integrationsController, err := integrations.NewController(localDB)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"couldn't create integrations controller: %w", err,
+		)
+	}
+
 	// ingestion pipelines manager
-	logParsingPipelineController, err := logparsingpipeline.NewLogParsingPipelinesController(localDB, "sqlite")
+	logParsingPipelineController, err := logparsingpipeline.NewLogParsingPipelinesController(
+		localDB, "sqlite", integrationsController.GetPipelinesForInstalledIntegrations,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +220,7 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 	}
 
 	// start the usagemanager
-	usageManager, err := usage.New("sqlite", localDB, lm.GetRepo(), reader.GetConn())
+	usageManager, err := usage.New("sqlite", modelDao, lm.GetRepo(), reader.GetConn())
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +250,6 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 	apiOpts := api.APIHandlerOptions{
 		DataConnector:                 reader,
 		SkipConfig:                    skipConfig,
-		PreferDelta:                   serverOptions.PreferDelta,
 		PreferSpanMetrics:             serverOptions.PreferSpanMetrics,
 		MaxIdleConns:                  serverOptions.MaxIdleConns,
 		MaxOpenConns:                  serverOptions.MaxOpenConns,
@@ -233,9 +259,11 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 		UsageManager:                  usageManager,
 		FeatureFlags:                  lm,
 		LicenseManager:                lm,
+		IntegrationsController:        integrationsController,
 		LogsParsingPipelineController: logParsingPipelineController,
 		Cache:                         c,
 		FluxInterval:                  fluxInterval,
+		Gateway:                       gatewayProxy,
 	}
 
 	apiHandler, err := api.NewAPIHandler(apiOpts)
@@ -276,8 +304,9 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 
 func (s *Server) createPrivateServer(apiHandler *api.APIHandler) (*http.Server, error) {
 
-	r := mux.NewRouter()
+	r := baseapp.NewRouter()
 
+	r.Use(baseapp.LogCommentEnricher)
 	r.Use(setTimeoutMiddleware)
 	r.Use(s.analyticsMiddleware)
 	r.Use(loggingMiddlewarePrivate)
@@ -289,7 +318,7 @@ func (s *Server) createPrivateServer(apiHandler *api.APIHandler) (*http.Server, 
 		// ip here for alert manager
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "DELETE", "POST", "PUT", "PATCH"},
-		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "SIGNOZ-API-KEY"},
+		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "SIGNOZ-API-KEY", "X-SIGNOZ-QUERY-ID", "Sec-WebSocket-Protocol"},
 	})
 
 	handler := c.Handler(r)
@@ -302,40 +331,39 @@ func (s *Server) createPrivateServer(apiHandler *api.APIHandler) (*http.Server, 
 
 func (s *Server) createPublicServer(apiHandler *api.APIHandler) (*http.Server, error) {
 
-	r := mux.NewRouter()
+	r := baseapp.NewRouter()
 
+	// add auth middleware
 	getUserFromRequest := func(r *http.Request) (*basemodel.UserPayload, error) {
-		patToken := r.Header.Get("SIGNOZ-API-KEY")
-		if len(patToken) > 0 {
-			zap.S().Debugf("Received a non-zero length PAT token")
-			ctx := context.Background()
-			dao := apiHandler.AppDao()
+		user, err := auth.GetUserFromRequest(r, apiHandler)
 
-			user, err := dao.GetUserByPAT(ctx, patToken)
-			if err == nil && user != nil {
-				zap.S().Debugf("Found valid PAT user: %+v", user)
-				return user, nil
-			}
-			if err != nil {
-				zap.S().Debugf("Error while getting user for PAT: %+v", err)
-			}
+		if err != nil {
+			return nil, err
 		}
-		return baseauth.GetUserFromRequest(r)
+
+		if user.User.OrgId == "" {
+			return nil, model.UnauthorizedError(errors.New("orgId is missing in the claims"))
+		}
+
+		return user, nil
 	}
 	am := baseapp.NewAuthMiddleware(getUserFromRequest)
+
+	r.Use(baseapp.LogCommentEnricher)
 	r.Use(setTimeoutMiddleware)
 	r.Use(s.analyticsMiddleware)
 	r.Use(loggingMiddleware)
 
 	apiHandler.RegisterRoutes(r, am)
-	apiHandler.RegisterMetricsRoutes(r, am)
 	apiHandler.RegisterLogsRoutes(r, am)
+	apiHandler.RegisterIntegrationRoutes(r, am)
 	apiHandler.RegisterQueryRangeV3Routes(r, am)
+	apiHandler.RegisterQueryRangeV4Routes(r, am)
 
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
 		AllowedMethods: []string{"GET", "DELETE", "POST", "PUT", "PATCH", "OPTIONS"},
-		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "cache-control"},
+		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "cache-control", "X-SIGNOZ-QUERY-ID", "Sec-WebSocket-Protocol"},
 	})
 
 	handler := c.Handler(r)
@@ -354,7 +382,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		path, _ := route.GetPathTemplate()
 		startTime := time.Now()
 		next.ServeHTTP(w, r)
-		zap.L().Info(path+"\ttimeTaken:"+time.Now().Sub(startTime).String(), zap.Duration("timeTaken", time.Now().Sub(startTime)), zap.String("path", path))
+		zap.L().Info(path, zap.Duration("timeTaken", time.Since(startTime)), zap.String("path", path))
 	})
 }
 
@@ -366,7 +394,7 @@ func loggingMiddlewarePrivate(next http.Handler) http.Handler {
 		path, _ := route.GetPathTemplate()
 		startTime := time.Now()
 		next.ServeHTTP(w, r)
-		zap.L().Info(path+"\tprivatePort: true \ttimeTaken"+time.Now().Sub(startTime).String(), zap.Duration("timeTaken", time.Now().Sub(startTime)), zap.String("path", path), zap.Bool("tprivatePort", true))
+		zap.L().Info(path, zap.Duration("timeTaken", time.Since(startTime)), zap.String("path", path), zap.Bool("tprivatePort", true))
 	})
 }
 
@@ -391,13 +419,23 @@ func (lrw *loggingResponseWriter) Flush() {
 	lrw.ResponseWriter.(http.Flusher).Flush()
 }
 
-func extractQueryRangeV3Data(path string, r *http.Request) (map[string]interface{}, bool) {
-	pathToExtractBodyFrom := "/api/v3/query_range"
+// Support websockets
+func (lrw *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := lrw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("hijack not supported")
+	}
+	return h.Hijack()
+}
+
+func extractQueryRangeData(path string, r *http.Request) (map[string]interface{}, bool) {
+	pathToExtractBodyFromV3 := "/api/v3/query_range"
+	pathToExtractBodyFromV4 := "/api/v4/query_range"
 
 	data := map[string]interface{}{}
 	var postData *v3.QueryRangeParamsV3
 
-	if path == pathToExtractBodyFrom && (r.Method == "POST") {
+	if (r.Method == "POST") && ((path == pathToExtractBodyFromV3) || (path == pathToExtractBodyFromV4)) {
 		if r.Body != nil {
 			bodyBytes, err := io.ReadAll(r.Body)
 			if err != nil {
@@ -415,32 +453,68 @@ func extractQueryRangeV3Data(path string, r *http.Request) (map[string]interface
 		return nil, false
 	}
 
+	referrer := r.Header.Get("Referer")
+
+	dashboardMatched, err := regexp.MatchString(`/dashboard/[a-zA-Z0-9\-]+/(new|edit)(?:\?.*)?$`, referrer)
+	if err != nil {
+		zap.L().Error("error while matching the referrer", zap.Error(err))
+	}
+	alertMatched, err := regexp.MatchString(`/alerts/(new|edit)(?:\?.*)?$`, referrer)
+	if err != nil {
+		zap.L().Error("error while matching the alert: ", zap.Error(err))
+	}
+	logsExplorerMatched, err := regexp.MatchString(`/logs/logs-explorer(?:\?.*)?$`, referrer)
+	if err != nil {
+		zap.L().Error("error while matching the logs explorer: ", zap.Error(err))
+	}
+	traceExplorerMatched, err := regexp.MatchString(`/traces-explorer(?:\?.*)?$`, referrer)
+	if err != nil {
+		zap.L().Error("error while matching the trace explorer: ", zap.Error(err))
+	}
+
 	signozMetricsUsed := false
 	signozLogsUsed := false
-	dataSources := []string{}
+	signozTracesUsed := false
 	if postData != nil {
 
 		if postData.CompositeQuery != nil {
 			data["queryType"] = postData.CompositeQuery.QueryType
 			data["panelType"] = postData.CompositeQuery.PanelType
 
-			signozLogsUsed, signozMetricsUsed = telemetry.GetInstance().CheckSigNozSignals(postData)
+			signozLogsUsed, signozMetricsUsed, signozTracesUsed = telemetry.GetInstance().CheckSigNozSignals(postData)
 		}
 	}
 
-	if signozMetricsUsed || signozLogsUsed {
+	if signozMetricsUsed || signozLogsUsed || signozTracesUsed {
 		if signozMetricsUsed {
-			dataSources = append(dataSources, "metrics")
 			telemetry.GetInstance().AddActiveMetricsUser()
 		}
 		if signozLogsUsed {
-			dataSources = append(dataSources, "logs")
 			telemetry.GetInstance().AddActiveLogsUser()
 		}
-		data["dataSources"] = dataSources
-		userEmail, err := auth.GetEmailFromJwt(r.Context())
+		if signozTracesUsed {
+			telemetry.GetInstance().AddActiveTracesUser()
+		}
+		data["metricsUsed"] = signozMetricsUsed
+		data["logsUsed"] = signozLogsUsed
+		data["tracesUsed"] = signozTracesUsed
+		userEmail, err := baseauth.GetEmailFromJwt(r.Context())
 		if err == nil {
-			telemetry.GetInstance().SendEvent(telemetry.TELEMETRY_EVENT_QUERY_RANGE_V3, data, userEmail, true)
+			// switch case to set data["screen"] based on the referrer
+			switch {
+			case dashboardMatched:
+				data["screen"] = "panel"
+			case alertMatched:
+				data["screen"] = "alert"
+			case logsExplorerMatched:
+				data["screen"] = "logs-explorer"
+			case traceExplorerMatched:
+				data["screen"] = "traces-explorer"
+			default:
+				data["screen"] = "unknown"
+				return data, true
+			}
+			telemetry.GetInstance().SendEvent(telemetry.TELEMETRY_EVENT_QUERY_RANGE_API, data, userEmail, true, false)
 		}
 	}
 	return data, true
@@ -462,12 +536,12 @@ func getActiveLogs(path string, r *http.Request) {
 
 func (s *Server) analyticsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := auth.AttachJwtToContext(r.Context(), r)
+		ctx := baseauth.AttachJwtToContext(r.Context(), r)
 		r = r.WithContext(ctx)
 		route := mux.CurrentRoute(r)
 		path, _ := route.GetPathTemplate()
 
-		queryRangeV3data, metadataExists := extractQueryRangeV3Data(path, r)
+		queryRangeData, metadataExists := extractQueryRangeData(path, r)
 		getActiveLogs(path, r)
 
 		lrw := NewLoggingResponseWriter(w)
@@ -475,15 +549,15 @@ func (s *Server) analyticsMiddleware(next http.Handler) http.Handler {
 
 		data := map[string]interface{}{"path": path, "statusCode": lrw.statusCode}
 		if metadataExists {
-			for key, value := range queryRangeV3data {
+			for key, value := range queryRangeData {
 				data[key] = value
 			}
 		}
 
 		if _, ok := telemetry.EnabledPaths()[path]; ok {
-			userEmail, err := auth.GetEmailFromJwt(r.Context())
+			userEmail, err := baseauth.GetEmailFromJwt(r.Context())
 			if err == nil {
-				telemetry.GetInstance().SendEvent(telemetry.TELEMETRY_EVENT_PATH, data, userEmail)
+				telemetry.GetInstance().SendEvent(telemetry.TELEMETRY_EVENT_PATH, data, userEmail, true, false)
 			}
 		}
 
@@ -520,7 +594,7 @@ func (s *Server) initListeners() error {
 		return err
 	}
 
-	zap.S().Info(fmt.Sprintf("Query server started listening on %s...", s.serverOptions.HTTPHostPort))
+	zap.L().Info(fmt.Sprintf("Query server started listening on %s...", s.serverOptions.HTTPHostPort))
 
 	// listen on private port to support internal services
 	privateHostPort := s.serverOptions.PrivateHostPort
@@ -533,7 +607,7 @@ func (s *Server) initListeners() error {
 	if err != nil {
 		return err
 	}
-	zap.S().Info(fmt.Sprintf("Query server started listening on private port %s...", s.serverOptions.PrivateHostPort))
+	zap.L().Info(fmt.Sprintf("Query server started listening on private port %s...", s.serverOptions.PrivateHostPort))
 
 	return nil
 }
@@ -545,7 +619,7 @@ func (s *Server) Start() error {
 	if !s.serverOptions.DisableRules {
 		s.ruleManager.Start()
 	} else {
-		zap.S().Info("msg: Rules disabled as rules.disable is set to TRUE")
+		zap.L().Info("msg: Rules disabled as rules.disable is set to TRUE")
 	}
 
 	err := s.initListeners()
@@ -559,23 +633,23 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
-		zap.S().Info("Starting HTTP server", zap.Int("port", httpPort), zap.String("addr", s.serverOptions.HTTPHostPort))
+		zap.L().Info("Starting HTTP server", zap.Int("port", httpPort), zap.String("addr", s.serverOptions.HTTPHostPort))
 
 		switch err := s.httpServer.Serve(s.httpConn); err {
 		case nil, http.ErrServerClosed, cmux.ErrListenerClosed:
 			// normal exit, nothing to do
 		default:
-			zap.S().Error("Could not start HTTP server", zap.Error(err))
+			zap.L().Error("Could not start HTTP server", zap.Error(err))
 		}
 		s.unavailableChannel <- healthcheck.Unavailable
 	}()
 
 	go func() {
-		zap.S().Info("Starting pprof server", zap.String("addr", baseconst.DebugHttpPort))
+		zap.L().Info("Starting pprof server", zap.String("addr", baseconst.DebugHttpPort))
 
 		err = http.ListenAndServe(baseconst.DebugHttpPort, nil)
 		if err != nil {
-			zap.S().Error("Could not start pprof server", zap.Error(err))
+			zap.L().Error("Could not start pprof server", zap.Error(err))
 		}
 	}()
 
@@ -585,14 +659,14 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
-		zap.S().Info("Starting Private HTTP server", zap.Int("port", privatePort), zap.String("addr", s.serverOptions.PrivateHostPort))
+		zap.L().Info("Starting Private HTTP server", zap.Int("port", privatePort), zap.String("addr", s.serverOptions.PrivateHostPort))
 
 		switch err := s.privateHTTP.Serve(s.privateConn); err {
 		case nil, http.ErrServerClosed, cmux.ErrListenerClosed:
 			// normal exit, nothing to do
-			zap.S().Info("private http server closed")
+			zap.L().Info("private http server closed")
 		default:
-			zap.S().Error("Could not start private HTTP server", zap.Error(err))
+			zap.L().Error("Could not start private HTTP server", zap.Error(err))
 		}
 
 		s.unavailableChannel <- healthcheck.Unavailable
@@ -600,10 +674,10 @@ func (s *Server) Start() error {
 	}()
 
 	go func() {
-		zap.S().Info("Starting OpAmp Websocket server", zap.String("addr", baseconst.OpAmpWsEndpoint))
+		zap.L().Info("Starting OpAmp Websocket server", zap.String("addr", baseconst.OpAmpWsEndpoint))
 		err := s.opampServer.Start(baseconst.OpAmpWsEndpoint)
 		if err != nil {
-			zap.S().Info("opamp ws server failed to start", err)
+			zap.L().Error("opamp ws server failed to start", zap.Error(err))
 			s.unavailableChannel <- healthcheck.Unavailable
 		}
 	}()
@@ -643,7 +717,7 @@ func makeRulesManager(
 	db *sqlx.DB,
 	ch baseint.Reader,
 	disableRules bool,
-	fm baseInterface.FeatureLookup) (*rules.Manager, error) {
+	fm baseint.FeatureLookup) (*rules.Manager, error) {
 
 	// create engine
 	pqle, err := pqle.FromConfigPath(promConfigPath)
@@ -671,6 +745,8 @@ func makeRulesManager(
 		Logger:       nil,
 		DisableRules: disableRules,
 		FeatureFlags: fm,
+		Reader:       ch,
+		EvalDelay:    baseconst.GetEvalDelay(),
 	}
 
 	// create Manager
@@ -679,7 +755,7 @@ func makeRulesManager(
 		return nil, fmt.Errorf("rule manager error: %v", err)
 	}
 
-	zap.S().Info("rules manager is ready")
+	zap.L().Info("rules manager is ready")
 
 	return manager, nil
 }

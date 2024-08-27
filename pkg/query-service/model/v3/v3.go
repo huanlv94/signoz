@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -251,6 +252,18 @@ type FilterAttributeKeyRequest struct {
 	Limit              int               `json:"limit"`
 }
 
+type QBFilterSuggestionsRequest struct {
+	DataSource     DataSource `json:"dataSource"`
+	SearchText     string     `json:"searchText"`
+	Limit          int        `json:"limit"`
+	ExistingFilter *FilterSet `json:"existing_filter"`
+}
+
+type QBFilterSuggestionsResponse struct {
+	AttributeKeys  []AttributeKey `json:"attributes"`
+	ExampleQueries []FilterSet    `json:"example_queries"`
+}
+
 type AttributeKeyDataType string
 
 const (
@@ -353,6 +366,8 @@ type QueryRangeParamsV3 struct {
 	CompositeQuery *CompositeQuery        `json:"compositeQuery"`
 	Variables      map[string]interface{} `json:"variables,omitempty"`
 	NoCache        bool                   `json:"noCache"`
+	Version        string                 `json:"-"`
+	FormatForWeb   bool                   `json:"formatForWeb,omitempty"`
 }
 
 type PromQuery struct {
@@ -398,33 +413,80 @@ type CompositeQuery struct {
 	PromQueries       map[string]*PromQuery       `json:"promQueries,omitempty"`
 	PanelType         PanelType                   `json:"panelType"`
 	QueryType         QueryType                   `json:"queryType"`
-	Unit              string                      `json:"unit,omitempty"`
+	// Unit for the time series data shown in the graph
+	// This is used in alerts to format the value and threshold
+	Unit string `json:"unit,omitempty"`
+	// FillGaps is used to fill the gaps in the time series data
+	FillGaps bool `json:"fillGaps,omitempty"`
+}
+
+func (c *CompositeQuery) EnabledQueries() int {
+	count := 0
+	switch c.QueryType {
+	case QueryTypeBuilder:
+		for _, query := range c.BuilderQueries {
+			if !query.Disabled {
+				count++
+			}
+		}
+	case QueryTypeClickHouseSQL:
+		for _, query := range c.ClickHouseQueries {
+			if !query.Disabled {
+				count++
+			}
+		}
+	case QueryTypePromQL:
+		for _, query := range c.PromQueries {
+			if !query.Disabled {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func (c *CompositeQuery) Sanitize() {
+	if c == nil {
+		return
+	}
+	// remove groupBy for queries with list panel type
+	for _, query := range c.BuilderQueries {
+		if len(query.GroupBy) > 0 && c.PanelType == PanelTypeList {
+			query.GroupBy = []AttributeKey{}
+		}
+	}
 }
 
 func (c *CompositeQuery) Validate() error {
 	if c == nil {
-		return nil
+		return fmt.Errorf("composite query is required")
 	}
 
 	if c.BuilderQueries == nil && c.ClickHouseQueries == nil && c.PromQueries == nil {
-		return fmt.Errorf("composite query must contain at least one query")
+		return fmt.Errorf("composite query must contain at least one query type")
 	}
 
-	for name, query := range c.BuilderQueries {
-		if err := query.Validate(); err != nil {
-			return fmt.Errorf("builder query %s is invalid: %w", name, err)
+	if c.QueryType == QueryTypeBuilder {
+		for name, query := range c.BuilderQueries {
+			if err := query.Validate(c.PanelType); err != nil {
+				return fmt.Errorf("builder query %s is invalid: %w", name, err)
+			}
 		}
 	}
 
-	for name, query := range c.ClickHouseQueries {
-		if err := query.Validate(); err != nil {
-			return fmt.Errorf("clickhouse query %s is invalid: %w", name, err)
+	if c.QueryType == QueryTypeClickHouseSQL {
+		for name, query := range c.ClickHouseQueries {
+			if err := query.Validate(); err != nil {
+				return fmt.Errorf("clickhouse query %s is invalid: %w", name, err)
+			}
 		}
 	}
 
-	for name, query := range c.PromQueries {
-		if err := query.Validate(); err != nil {
-			return fmt.Errorf("prom query %s is invalid: %w", name, err)
+	if c.QueryType == QueryTypePromQL {
+		for name, query := range c.PromQueries {
+			if err := query.Validate(); err != nil {
+				return fmt.Errorf("prom query %s is invalid: %w", name, err)
+			}
 		}
 	}
 
@@ -462,21 +524,156 @@ const (
 	TimeAggregationIncrease      TimeAggregation = "increase"
 )
 
+func (t TimeAggregation) Validate() error {
+	switch t {
+	case TimeAggregationAnyLast,
+		TimeAggregationSum,
+		TimeAggregationAvg,
+		TimeAggregationMin,
+		TimeAggregationMax,
+		TimeAggregationCount,
+		TimeAggregationCountDistinct,
+		TimeAggregationRate,
+		TimeAggregationIncrease:
+		return nil
+	default:
+		return fmt.Errorf("invalid time aggregation: %s", t)
+	}
+}
+
+func (t TimeAggregation) IsRateOperator() bool {
+	switch t {
+	case TimeAggregationRate, TimeAggregationIncrease:
+		return true
+	default:
+		return false
+	}
+}
+
+type MetricType string
+
+const (
+	MetricTypeUnspecified          MetricType = ""
+	MetricTypeSum                  MetricType = "Sum"
+	MetricTypeGauge                MetricType = "Gauge"
+	MetricTypeHistogram            MetricType = "Histogram"
+	MetricTypeSummary              MetricType = "Summary"
+	MetricTypeExponentialHistogram MetricType = "ExponentialHistogram"
+)
+
 type SpaceAggregation string
 
 const (
-	SpaceAggregationUnspecified SpaceAggregation = ""
-	SpaceAggregationSum         SpaceAggregation = "sum"
-	SpaceAggregationAvg         SpaceAggregation = "avg"
-	SpaceAggregationMin         SpaceAggregation = "min"
-	SpaceAggregationMax         SpaceAggregation = "max"
-	SpaceAggregationCount       SpaceAggregation = "count"
+	SpaceAggregationUnspecified  SpaceAggregation = ""
+	SpaceAggregationSum          SpaceAggregation = "sum"
+	SpaceAggregationAvg          SpaceAggregation = "avg"
+	SpaceAggregationMin          SpaceAggregation = "min"
+	SpaceAggregationMax          SpaceAggregation = "max"
+	SpaceAggregationCount        SpaceAggregation = "count"
+	SpaceAggregationPercentile50 SpaceAggregation = "p50"
+	SpaceAggregationPercentile75 SpaceAggregation = "p75"
+	SpaceAggregationPercentile90 SpaceAggregation = "p90"
+	SpaceAggregationPercentile95 SpaceAggregation = "p95"
+	SpaceAggregationPercentile99 SpaceAggregation = "p99"
 )
 
+func (s SpaceAggregation) Validate() error {
+	switch s {
+	case SpaceAggregationSum,
+		SpaceAggregationAvg,
+		SpaceAggregationMin,
+		SpaceAggregationMax,
+		SpaceAggregationCount,
+		SpaceAggregationPercentile50,
+		SpaceAggregationPercentile75,
+		SpaceAggregationPercentile90,
+		SpaceAggregationPercentile95,
+		SpaceAggregationPercentile99:
+		return nil
+	default:
+		return fmt.Errorf("invalid space aggregation: %s", s)
+	}
+}
+
+func IsPercentileOperator(operator SpaceAggregation) bool {
+	switch operator {
+	case SpaceAggregationPercentile50,
+		SpaceAggregationPercentile75,
+		SpaceAggregationPercentile90,
+		SpaceAggregationPercentile95,
+		SpaceAggregationPercentile99:
+		return true
+	default:
+		return false
+	}
+}
+
+func GetPercentileFromOperator(operator SpaceAggregation) float64 {
+	// This could be done with a map, but it's just easier to read this way
+	switch operator {
+	case SpaceAggregationPercentile50:
+		return 0.5
+	case SpaceAggregationPercentile75:
+		return 0.75
+	case SpaceAggregationPercentile90:
+		return 0.9
+	case SpaceAggregationPercentile95:
+		return 0.95
+	case SpaceAggregationPercentile99:
+		return 0.99
+	default:
+		return 0
+	}
+}
+
+type FunctionName string
+
+const (
+	FunctionNameCutOffMin   FunctionName = "cutOffMin"
+	FunctionNameCutOffMax   FunctionName = "cutOffMax"
+	FunctionNameClampMin    FunctionName = "clampMin"
+	FunctionNameClampMax    FunctionName = "clampMax"
+	FunctionNameAbsolute    FunctionName = "absolute"
+	FunctionNameRunningDiff FunctionName = "runningDiff"
+	FunctionNameLog2        FunctionName = "log2"
+	FunctionNameLog10       FunctionName = "log10"
+	FunctionNameCumSum      FunctionName = "cumSum"
+	FunctionNameEWMA3       FunctionName = "ewma3"
+	FunctionNameEWMA5       FunctionName = "ewma5"
+	FunctionNameEWMA7       FunctionName = "ewma7"
+	FunctionNameMedian3     FunctionName = "median3"
+	FunctionNameMedian5     FunctionName = "median5"
+	FunctionNameMedian7     FunctionName = "median7"
+	FunctionNameTimeShift   FunctionName = "timeShift"
+)
+
+func (f FunctionName) Validate() error {
+	switch f {
+	case FunctionNameCutOffMin,
+		FunctionNameCutOffMax,
+		FunctionNameClampMin,
+		FunctionNameClampMax,
+		FunctionNameAbsolute,
+		FunctionNameRunningDiff,
+		FunctionNameLog2,
+		FunctionNameLog10,
+		FunctionNameCumSum,
+		FunctionNameEWMA3,
+		FunctionNameEWMA5,
+		FunctionNameEWMA7,
+		FunctionNameMedian3,
+		FunctionNameMedian5,
+		FunctionNameMedian7,
+		FunctionNameTimeShift:
+		return nil
+	default:
+		return fmt.Errorf("invalid function name: %s", f)
+	}
+}
+
 type Function struct {
-	Category string        `json:"category"`
-	Name     string        `json:"name"`
-	Args     []interface{} `json:"args,omitempty"`
+	Name FunctionName  `json:"name"`
+	Args []interface{} `json:"args,omitempty"`
 }
 
 type BuilderQuery struct {
@@ -501,12 +698,42 @@ type BuilderQuery struct {
 	TimeAggregation    TimeAggregation   `json:"timeAggregation,omitempty"`
 	SpaceAggregation   SpaceAggregation  `json:"spaceAggregation,omitempty"`
 	Functions          []Function        `json:"functions,omitempty"`
+	ShiftBy            int64
 }
 
-func (b *BuilderQuery) Validate() error {
+// CanDefaultZero returns true if the missing value can be substituted by zero
+// For example, for an aggregation window [Tx - Tx+1], with an aggregation operator `count`
+// The lack of data can always be interpreted as zero. No data for requests count = zero requests
+// This is true for all aggregations that have `count`ing involved.
+//
+// The same can't be true for others, `sum` of no values doesn't necessarily mean zero.
+// We can't decide whether or not should it be zero.
+func (b *BuilderQuery) CanDefaultZero() bool {
+	switch b.DataSource {
+	case DataSourceMetrics:
+		if b.AggregateOperator.IsRateOperator() ||
+			b.TimeAggregation.IsRateOperator() ||
+			b.AggregateOperator == AggregateOperatorCount ||
+			b.AggregateOperator == AggregateOperatorCountDistinct ||
+			b.TimeAggregation == TimeAggregationCount ||
+			b.TimeAggregation == TimeAggregationCountDistinct {
+			return true
+		}
+	case DataSourceTraces, DataSourceLogs:
+		if b.AggregateOperator.IsRateOperator() ||
+			b.AggregateOperator == AggregateOperatorCount ||
+			b.AggregateOperator == AggregateOperatorCountDistinct {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *BuilderQuery) Validate(panelType PanelType) error {
 	if b == nil {
 		return nil
 	}
+
 	if b.QueryName == "" {
 		return fmt.Errorf("query name is required")
 	}
@@ -517,8 +744,28 @@ func (b *BuilderQuery) Validate() error {
 		if err := b.DataSource.Validate(); err != nil {
 			return fmt.Errorf("data source is invalid: %w", err)
 		}
-		if err := b.AggregateOperator.Validate(); err != nil {
-			return fmt.Errorf("aggregate operator is invalid: %w", err)
+		if b.DataSource == DataSourceMetrics {
+			// if AggregateOperator is specified, then the request is using v3 payload
+			// if b.AggregateOperator != "" && b.SpaceAggregation == SpaceAggregationUnspecified {
+			// 	if err := b.AggregateOperator.Validate(); err != nil {
+			// 		return fmt.Errorf("aggregate operator is invalid: %w", err)
+			// 	}
+			// } else {
+			// 	// the time aggregation is not needed for percentile operators
+			// 	if !IsPercentileOperator(b.SpaceAggregation) {
+			// 		if err := b.TimeAggregation.Validate(); err != nil {
+			// 			return fmt.Errorf("time aggregation is invalid: %w", err)
+			// 		}
+			// 	}
+
+			// 	if err := b.SpaceAggregation.Validate(); err != nil {
+			// 		return fmt.Errorf("space aggregation is invalid: %w", err)
+			// 	}
+			// }
+		} else {
+			if err := b.AggregateOperator.Validate(); err != nil {
+				return fmt.Errorf("aggregate operator is invalid: %w", err)
+			}
 		}
 		if b.AggregateAttribute == (AttributeKey{}) && b.AggregateOperator.RequireAttribute(b.DataSource) {
 			return fmt.Errorf("aggregate attribute is required")
@@ -531,15 +778,27 @@ func (b *BuilderQuery) Validate() error {
 		}
 	}
 	if b.GroupBy != nil {
+		// if len(b.GroupBy) > 0 && panelType == PanelTypeList {
+		// 	return fmt.Errorf("group by is not supported for list panel type")
+		// }
+
 		for _, groupBy := range b.GroupBy {
 			if err := groupBy.Validate(); err != nil {
 				return fmt.Errorf("group by is invalid %w", err)
 			}
 		}
 
-		if b.DataSource == DataSourceMetrics && len(b.GroupBy) > 0 {
+		if b.DataSource == DataSourceMetrics && len(b.GroupBy) > 0 && b.SpaceAggregation == SpaceAggregationUnspecified {
 			if b.AggregateOperator == AggregateOperatorNoOp || b.AggregateOperator == AggregateOperatorRate {
 				return fmt.Errorf("group by requires aggregate operator other than noop or rate")
+			}
+		}
+	}
+
+	if b.Having != nil {
+		for _, having := range b.Having {
+			if err := having.Operator.Validate(); err != nil {
+				return fmt.Errorf("having operator is invalid: %w", err)
 			}
 		}
 	}
@@ -553,6 +812,63 @@ func (b *BuilderQuery) Validate() error {
 	if b.Expression == "" {
 		return fmt.Errorf("expression is required")
 	}
+
+	if len(b.Functions) > 0 {
+		for _, function := range b.Functions {
+			if err := function.Name.Validate(); err != nil {
+				return fmt.Errorf("function name is invalid: %w", err)
+			}
+			if function.Name == FunctionNameTimeShift {
+				if len(function.Args) == 0 {
+					return fmt.Errorf("timeShiftBy param missing in query")
+				}
+				_, ok := function.Args[0].(float64)
+				if !ok {
+					// if string, attempt to convert to float
+					timeShiftBy, err := strconv.ParseFloat(function.Args[0].(string), 64)
+					if err != nil {
+						return fmt.Errorf("timeShiftBy param should be a number")
+					}
+					function.Args[0] = timeShiftBy
+				}
+			} else if function.Name == FunctionNameEWMA3 ||
+				function.Name == FunctionNameEWMA5 ||
+				function.Name == FunctionNameEWMA7 {
+				if len(function.Args) == 0 {
+					return fmt.Errorf("alpha param missing in query")
+				}
+				alpha, ok := function.Args[0].(float64)
+				if !ok {
+					// if string, attempt to convert to float
+					alpha, err := strconv.ParseFloat(function.Args[0].(string), 64)
+					if err != nil {
+						return fmt.Errorf("alpha param should be a float")
+					}
+					function.Args[0] = alpha
+				}
+				if alpha < 0 || alpha > 1 {
+					return fmt.Errorf("alpha param should be between 0 and 1")
+				}
+			} else if function.Name == FunctionNameCutOffMax ||
+				function.Name == FunctionNameCutOffMin ||
+				function.Name == FunctionNameClampMax ||
+				function.Name == FunctionNameClampMin {
+				if len(function.Args) == 0 {
+					return fmt.Errorf("threshold param missing in query")
+				}
+				_, ok := function.Args[0].(float64)
+				if !ok {
+					// if string, attempt to convert to float
+					threshold, err := strconv.ParseFloat(function.Args[0].(string), 64)
+					if err != nil {
+						return fmt.Errorf("threshold param should be a float")
+					}
+					function.Args[0] = threshold
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -607,7 +923,8 @@ const (
 	FilterOperatorNotContains     FilterOperator = "ncontains"
 	FilterOperatorRegex           FilterOperator = "regex"
 	FilterOperatorNotRegex        FilterOperator = "nregex"
-	// (I)LIKE is faster than REGEX and supports index
+	// (I)LIKE is faster than REGEX
+	// ilike doesn't support index so internally we use lower(body) like for query
 	FilterOperatorLike    FilterOperator = "like"
 	FilterOperatorNotLike FilterOperator = "nlike"
 
@@ -637,10 +954,47 @@ type OrderBy struct {
 	IsColumn   bool                 `json:"-"`
 }
 
+func (o OrderBy) CacheKey() string {
+	return fmt.Sprintf("%s-%s", o.ColumnName, o.Order)
+}
+
+// See HAVING_OPERATORS in queryBuilder.ts
+
+type HavingOperator string
+
+const (
+	HavingOperatorEqual           HavingOperator = "="
+	HavingOperatorNotEqual        HavingOperator = "!="
+	HavingOperatorGreaterThan     HavingOperator = ">"
+	HavingOperatorGreaterThanOrEq HavingOperator = ">="
+	HavingOperatorLessThan        HavingOperator = "<"
+	HavingOperatorLessThanOrEq    HavingOperator = "<="
+	HavingOperatorIn              HavingOperator = "IN"
+	HavingOperatorNotIn           HavingOperator = "NOT_IN"
+)
+
+func (h HavingOperator) Validate() error {
+	switch h {
+	case HavingOperatorEqual,
+		HavingOperatorNotEqual,
+		HavingOperatorGreaterThan,
+		HavingOperatorGreaterThanOrEq,
+		HavingOperatorLessThan,
+		HavingOperatorLessThanOrEq,
+		HavingOperatorIn,
+		HavingOperatorNotIn,
+		HavingOperator(strings.ToLower(string(HavingOperatorIn))),
+		HavingOperator(strings.ToLower(string(HavingOperatorNotIn))):
+		return nil
+	default:
+		return fmt.Errorf("invalid having operator: %s", h)
+	}
+}
+
 type Having struct {
-	ColumnName string      `json:"columnName"`
-	Operator   string      `json:"op"`
-	Value      interface{} `json:"value"`
+	ColumnName string         `json:"columnName"`
+	Operator   HavingOperator `json:"op"`
+	Value      interface{}    `json:"value"`
 }
 
 func (h *Having) CacheKey() string {
@@ -654,10 +1008,30 @@ type QueryRangeResponse struct {
 	Result                []*Result `json:"result"`
 }
 
+type TableColumn struct {
+	Name string `json:"name"`
+	// QueryName is the name of the query that this column belongs to
+	QueryName string `json:"queryName"`
+	// IsValueColumn is true if this column is a value column
+	// i.e it is the column that contains the actual value that is being plotted
+	IsValueColumn bool `json:"isValueColumn"`
+}
+
+type TableRow struct {
+	Data      map[string]interface{} `json:"data"`
+	QueryName string                 `json:"-"`
+}
+
+type Table struct {
+	Columns []*TableColumn `json:"columns"`
+	Rows    []*TableRow    `json:"rows"`
+}
+
 type Result struct {
-	QueryName string    `json:"queryName"`
-	Series    []*Series `json:"series"`
-	List      []*Row    `json:"list"`
+	QueryName string    `json:"queryName,omitempty"`
+	Series    []*Series `json:"series,omitempty"`
+	List      []*Row    `json:"list,omitempty"`
+	Table     *Table    `json:"table,omitempty"`
 }
 
 type LogsLiveTailClient struct {
@@ -668,16 +1042,44 @@ type LogsLiveTailClient struct {
 }
 
 type Series struct {
-	Labels            map[string]string   `json:"labels"`
-	LabelsArray       []map[string]string `json:"labelsArray"`
-	Points            []Point             `json:"values"`
-	GroupingSetsPoint *Point              `json:"-"`
+	Labels      map[string]string   `json:"labels"`
+	LabelsArray []map[string]string `json:"labelsArray"`
+	Points      []Point             `json:"values"`
 }
 
 func (s *Series) SortPoints() {
 	sort.Slice(s.Points, func(i, j int) bool {
 		return s.Points[i].Timestamp < s.Points[j].Timestamp
 	})
+}
+
+func (s *Series) RemoveDuplicatePoints() {
+	if len(s.Points) == 0 {
+		return
+	}
+
+	// priortize the last point
+	// this is to handle the case where the same point is sent twice
+	// the last point is the most recent point adjusted for the flux interval
+
+	newPoints := make([]Point, 0)
+	for i := len(s.Points) - 1; i >= 0; i-- {
+		if len(newPoints) == 0 {
+			newPoints = append(newPoints, s.Points[i])
+			continue
+		}
+		if newPoints[len(newPoints)-1].Timestamp != s.Points[i].Timestamp {
+			newPoints = append(newPoints, s.Points[i])
+		}
+	}
+
+	// reverse the points
+	for i := len(newPoints)/2 - 1; i >= 0; i-- {
+		opp := len(newPoints) - 1 - i
+		newPoints[i], newPoints[opp] = newPoints[opp], newPoints[i]
+	}
+
+	s.Points = newPoints
 }
 
 type Row struct {
@@ -745,4 +1147,111 @@ func (eq *SavedView) Validate() error {
 type LatencyMetricMetadataResponse struct {
 	Delta bool      `json:"delta"`
 	Le    []float64 `json:"le"`
+}
+
+type MetricMetadataResponse struct {
+	Delta       bool      `json:"delta"`
+	Le          []float64 `json:"le"`
+	Description string    `json:"description"`
+	Unit        string    `json:"unit"`
+	Type        string    `json:"type"`
+	IsMonotonic bool      `json:"isMonotonic"`
+	Temporality string    `json:"temporality"`
+}
+
+type LabelsString string
+
+func (l *LabelsString) MarshalJSON() ([]byte, error) {
+	lbls := make(map[string]string)
+	err := json.Unmarshal([]byte(*l), &lbls)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(lbls)
+}
+
+func (l *LabelsString) Scan(src interface{}) error {
+	if data, ok := src.(string); ok {
+		*l = LabelsString(data)
+	}
+	return nil
+}
+
+func (l LabelsString) String() string {
+	return string(l)
+}
+
+type RuleStateHistory struct {
+	RuleID   string `json:"ruleID" ch:"rule_id"`
+	RuleName string `json:"ruleName" ch:"rule_name"`
+	// One of ["normal", "firing"]
+	OverallState        string `json:"overallState" ch:"overall_state"`
+	OverallStateChanged bool   `json:"overallStateChanged" ch:"overall_state_changed"`
+	// One of ["normal", "firing", "no_data", "muted"]
+	State        string       `json:"state" ch:"state"`
+	StateChanged bool         `json:"stateChanged" ch:"state_changed"`
+	UnixMilli    int64        `json:"unixMilli" ch:"unix_milli"`
+	Labels       LabelsString `json:"labels" ch:"labels"`
+	Fingerprint  uint64       `json:"fingerprint" ch:"fingerprint"`
+	Value        float64      `json:"value" ch:"value"`
+}
+
+type QueryRuleStateHistory struct {
+	Start   int64      `json:"start"`
+	End     int64      `json:"end"`
+	Filters *FilterSet `json:"filters"`
+	Offset  int64      `json:"offset"`
+	Limit   int64      `json:"limit"`
+	Order   string     `json:"order"`
+}
+
+func (r *QueryRuleStateHistory) Validate() error {
+	if r.Start == 0 || r.End == 0 {
+		return fmt.Errorf("start and end are required")
+	}
+	if r.Offset < 0 || r.Limit < 0 {
+		return fmt.Errorf("offset and limit must be greater than 0")
+	}
+	if r.Order != "asc" && r.Order != "desc" {
+		return fmt.Errorf("order must be asc or desc")
+	}
+	return nil
+}
+
+type RuleStateHistoryContributor struct {
+	Fingerprint uint64       `json:"fingerprint" ch:"fingerprint"`
+	Labels      LabelsString `json:"labels" ch:"labels"`
+	Count       uint64       `json:"count" ch:"count"`
+}
+
+type RuleStateTransition struct {
+	RuleID         string `json:"ruleID" ch:"rule_id"`
+	State          string `json:"state" ch:"state"`
+	FiringTime     int64  `json:"firingTime" ch:"firing_time"`
+	ResolutionTime int64  `json:"resolutionTime" ch:"resolution_time"`
+}
+
+type ReleStateItem struct {
+	State string `json:"state"`
+	Start int64  `json:"start"`
+	End   int64  `json:"end"`
+}
+
+type Stats struct {
+	TotalCurrentTriggers           uint64  `json:"totalCurrentTriggers"`
+	TotalPastTriggers              uint64  `json:"totalPastTriggers"`
+	CurrentTriggersSeries          *Series `json:"currentTriggersSeries"`
+	PastTriggersSeries             *Series `json:"pastTriggersSeries"`
+	CurrentAvgResolutionTime       string  `json:"currentAvgResolutionTime"`
+	PastAvgResolutionTime          string  `json:"pastAvgResolutionTime"`
+	CurrentAvgResolutionTimeSeries *Series `json:"currentAvgResolutionTimeSeries"`
+	PastAvgResolutionTimeSeries    *Series `json:"pastAvgResolutionTimeSeries"`
+}
+
+type QueryProgress struct {
+	ReadRows uint64 `json:"read_rows"`
+
+	ReadBytes uint64 `json:"read_bytes"`
+
+	ElapsedMs uint64 `json:"elapsed_ms"`
 }

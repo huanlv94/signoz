@@ -23,6 +23,7 @@ func TestFindMissingTimeRangesZeroFreshNess(t *testing.T) {
 		name           string
 		requestedStart int64 // in milliseconds
 		requestedEnd   int64 // in milliseconds
+		requestedStep  int64 // in seconds
 		cachedSeries   []*v3.Series
 		expectedMiss   []missInterval
 	}{
@@ -30,6 +31,7 @@ func TestFindMissingTimeRangesZeroFreshNess(t *testing.T) {
 			name:           "cached time range is a subset of the requested time range",
 			requestedStart: 1675115596722,
 			requestedEnd:   1675115596722 + 180*60*1000,
+			requestedStep:  60,
 			cachedSeries: []*v3.Series{
 				{
 					Labels: map[string]string{
@@ -62,6 +64,7 @@ func TestFindMissingTimeRangesZeroFreshNess(t *testing.T) {
 			name:           "cached time range is a superset of the requested time range",
 			requestedStart: 1675115596722,
 			requestedEnd:   1675115596722 + 180*60*1000,
+			requestedStep:  60,
 			cachedSeries: []*v3.Series{
 				{
 					Labels: map[string]string{
@@ -93,6 +96,7 @@ func TestFindMissingTimeRangesZeroFreshNess(t *testing.T) {
 			name:           "cached time range is a left overlap of the requested time range",
 			requestedStart: 1675115596722,
 			requestedEnd:   1675115596722 + 180*60*1000,
+			requestedStep:  60,
 			cachedSeries: []*v3.Series{
 				{
 					Labels: map[string]string{
@@ -125,6 +129,7 @@ func TestFindMissingTimeRangesZeroFreshNess(t *testing.T) {
 			name:           "cached time range is a right overlap of the requested time range",
 			requestedStart: 1675115596722,
 			requestedEnd:   1675115596722 + 180*60*1000,
+			requestedStep:  60,
 			cachedSeries: []*v3.Series{
 				{
 					Labels: map[string]string{
@@ -157,6 +162,7 @@ func TestFindMissingTimeRangesZeroFreshNess(t *testing.T) {
 			name:           "cached time range is a disjoint of the requested time range",
 			requestedStart: 1675115596722,
 			requestedEnd:   1675115596722 + 180*60*1000,
+			requestedStep:  60,
 			cachedSeries: []*v3.Series{
 				{
 					Labels: map[string]string{
@@ -189,7 +195,7 @@ func TestFindMissingTimeRangesZeroFreshNess(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			misses := findMissingTimeRanges(tc.requestedStart, tc.requestedEnd, tc.cachedSeries, 0*time.Minute)
+			misses := findMissingTimeRanges(tc.requestedStart, tc.requestedEnd, tc.requestedStep, tc.cachedSeries, 0*time.Minute)
 			if len(misses) != len(tc.expectedMiss) {
 				t.Errorf("expected %d misses, got %d", len(tc.expectedMiss), len(misses))
 			}
@@ -211,6 +217,7 @@ func TestFindMissingTimeRangesWithFluxInterval(t *testing.T) {
 		name           string
 		requestedStart int64
 		requestedEnd   int64
+		requestedStep  int64
 		cachedSeries   []*v3.Series
 		fluxInterval   time.Duration
 		expectedMiss   []missInterval
@@ -219,6 +226,7 @@ func TestFindMissingTimeRangesWithFluxInterval(t *testing.T) {
 			name:           "cached time range is a subset of the requested time range",
 			requestedStart: 1675115596722,
 			requestedEnd:   1675115596722 + 180*60*1000,
+			requestedStep:  60,
 			cachedSeries: []*v3.Series{
 				{
 					Labels: map[string]string{
@@ -252,6 +260,7 @@ func TestFindMissingTimeRangesWithFluxInterval(t *testing.T) {
 			name:           "cached time range is a superset of the requested time range",
 			requestedStart: 1675115596722,
 			requestedEnd:   1675115596722 + 180*60*1000,
+			requestedStep:  60,
 			cachedSeries: []*v3.Series{
 				{
 					Labels: map[string]string{
@@ -284,6 +293,7 @@ func TestFindMissingTimeRangesWithFluxInterval(t *testing.T) {
 			name:           "cache time range is a left overlap of the requested time range",
 			requestedStart: 1675115596722,
 			requestedEnd:   1675115596722 + 180*60*1000,
+			requestedStep:  60,
 			cachedSeries: []*v3.Series{
 				{
 					Labels: map[string]string{
@@ -317,6 +327,7 @@ func TestFindMissingTimeRangesWithFluxInterval(t *testing.T) {
 			name:           "cache time range is a right overlap of the requested time range",
 			requestedStart: 1675115596722,
 			requestedEnd:   1675115596722 + 180*60*1000,
+			requestedStep:  60,
 			cachedSeries: []*v3.Series{
 				{
 					Labels: map[string]string{
@@ -350,6 +361,7 @@ func TestFindMissingTimeRangesWithFluxInterval(t *testing.T) {
 			name:           "cache time range is a disjoint of the requested time range",
 			requestedStart: 1675115596722,
 			requestedEnd:   1675115596722 + 180*60*1000,
+			requestedStep:  60,
 			cachedSeries: []*v3.Series{
 				{
 					Labels: map[string]string{
@@ -383,7 +395,7 @@ func TestFindMissingTimeRangesWithFluxInterval(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			misses := findMissingTimeRanges(tc.requestedStart, tc.requestedEnd, tc.cachedSeries, tc.fluxInterval)
+			misses := findMissingTimeRanges(tc.requestedStart, tc.requestedEnd, tc.requestedStep, tc.cachedSeries, tc.fluxInterval)
 			if len(misses) != len(tc.expectedMiss) {
 				t.Errorf("expected %d misses, got %d", len(tc.expectedMiss), len(misses))
 			}
@@ -404,6 +416,7 @@ func TestQueryRange(t *testing.T) {
 		{
 			Start: 1675115596722,
 			End:   1675115596722 + 120*60*1000,
+			Step:  60,
 			CompositeQuery: &v3.CompositeQuery{
 				QueryType: v3.QueryTypeBuilder,
 				PanelType: v3.PanelTypeGraph,
@@ -436,6 +449,7 @@ func TestQueryRange(t *testing.T) {
 		{
 			Start: 1675115596722 + 60*60*1000,
 			End:   1675115596722 + 180*60*1000,
+			Step:  60,
 			CompositeQuery: &v3.CompositeQuery{
 				QueryType: v3.QueryTypeBuilder,
 				PanelType: v3.PanelTypeGraph,
@@ -558,14 +572,14 @@ func TestQueryRange(t *testing.T) {
 	}
 	q := NewQuerier(opts)
 	expectedTimeRangeInQueryString := []string{
-		fmt.Sprintf("timestamp_ms >= %d AND timestamp_ms < %d", 1675115520000, 1675115580000+120*60*1000),
-		fmt.Sprintf("timestamp_ms >= %d AND timestamp_ms < %d", 1675115520000+120*60*1000, 1675115580000+180*60*1000),
+		fmt.Sprintf("unix_milli >= %d AND unix_milli < %d", 1675115520000, 1675115580000+120*60*1000),
+		fmt.Sprintf("unix_milli >= %d AND unix_milli < %d", 1675115520000+120*60*1000, 1675115580000+180*60*1000),
 		fmt.Sprintf("timestamp >= '%d' AND timestamp <= '%d'", 1675115580000*1000000, (1675115580000+120*60*1000)*int64(1000000)),
 		fmt.Sprintf("timestamp >= '%d' AND timestamp <= '%d'", (1675115580000+60*60*1000)*int64(1000000), (1675115580000+180*60*1000)*int64(1000000)),
 	}
 
 	for i, param := range params {
-		_, err, errByName := q.QueryRange(context.Background(), param, nil)
+		_, errByName, err := q.QueryRange(context.Background(), param, nil)
 		if err != nil {
 			t.Errorf("expected no error, got %s", err)
 		}
@@ -669,12 +683,12 @@ func TestQueryRangeValueType(t *testing.T) {
 	q := NewQuerier(opts)
 	// No caching
 	expectedTimeRangeInQueryString := []string{
-		fmt.Sprintf("timestamp_ms >= %d AND timestamp_ms < %d", 1675115520000, 1675115580000+120*60*1000),
+		fmt.Sprintf("unix_milli >= %d AND unix_milli < %d", 1675115520000, 1675115580000+120*60*1000),
 		fmt.Sprintf("timestamp >= '%d' AND timestamp <= '%d'", (1675115580000+60*60*1000)*int64(1000000), (1675115580000+180*60*1000)*int64(1000000)),
 	}
 
 	for i, param := range params {
-		_, err, errByName := q.QueryRange(context.Background(), param, nil)
+		_, errByName, err := q.QueryRange(context.Background(), param, nil)
 		if err != nil {
 			t.Errorf("expected no error, got %s", err)
 		}
@@ -684,6 +698,355 @@ func TestQueryRangeValueType(t *testing.T) {
 
 		if !strings.Contains(q.QueriesExecuted()[i], expectedTimeRangeInQueryString[i]) {
 			t.Errorf("expected query to contain %s, got %s", expectedTimeRangeInQueryString[i], q.QueriesExecuted()[i])
+		}
+	}
+}
+
+// test timeshift
+func TestQueryRangeTimeShift(t *testing.T) {
+	params := []*v3.QueryRangeParamsV3{
+		{
+			Start: 1675115596722,               //31, 3:23
+			End:   1675115596722 + 120*60*1000, //31, 5:23
+			Step:  5 * time.Minute.Milliseconds(),
+			CompositeQuery: &v3.CompositeQuery{
+				QueryType: v3.QueryTypeBuilder,
+				PanelType: v3.PanelTypeGraph,
+				BuilderQueries: map[string]*v3.BuilderQuery{
+					"A": {
+						QueryName:          "A",
+						StepInterval:       60,
+						DataSource:         v3.DataSourceLogs,
+						AggregateAttribute: v3.AttributeKey{},
+						Filters: &v3.FilterSet{
+							Operator: "AND",
+							Items:    []v3.FilterItem{},
+						},
+						AggregateOperator: v3.AggregateOperatorCount,
+						Expression:        "A",
+						ShiftBy:           86400,
+					},
+				},
+			},
+		},
+	}
+	opts := QuerierOptions{
+		Reader:       nil,
+		FluxInterval: 5 * time.Minute,
+		KeyGenerator: queryBuilder.NewKeyGenerator(),
+		TestingMode:  true,
+	}
+	q := NewQuerier(opts)
+	// logs queries are generates in ns
+	expectedTimeRangeInQueryString := fmt.Sprintf("timestamp >= %d AND timestamp <= %d", (1675115596722-86400*1000)*1000000, ((1675115596722+120*60*1000)-86400*1000)*1000000)
+
+	for i, param := range params {
+		_, errByName, err := q.QueryRange(context.Background(), param, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %s", err)
+		}
+		if len(errByName) > 0 {
+			t.Errorf("expected no error, got %v", errByName)
+		}
+		if !strings.Contains(q.QueriesExecuted()[i], expectedTimeRangeInQueryString) {
+			t.Errorf("expected query to contain %s, got %s", expectedTimeRangeInQueryString, q.QueriesExecuted()[i])
+		}
+	}
+}
+
+// timeshift works with caching
+func TestQueryRangeTimeShiftWithCache(t *testing.T) {
+	params := []*v3.QueryRangeParamsV3{
+		{
+			Start: 1675115596722 + 60*60*1000 - 86400*1000,  //30th Jan, 4:23
+			End:   1675115596722 + 120*60*1000 - 86400*1000, //30th Jan, 5:23
+			Step:  5 * time.Minute.Milliseconds(),
+			CompositeQuery: &v3.CompositeQuery{
+				QueryType: v3.QueryTypeBuilder,
+				PanelType: v3.PanelTypeGraph,
+				BuilderQueries: map[string]*v3.BuilderQuery{
+					"A": {
+						QueryName:          "A",
+						StepInterval:       60,
+						DataSource:         v3.DataSourceLogs,
+						AggregateAttribute: v3.AttributeKey{},
+						Filters: &v3.FilterSet{
+							Operator: "AND",
+							Items:    []v3.FilterItem{},
+						},
+						AggregateOperator: v3.AggregateOperatorCount,
+						Expression:        "A",
+						GroupBy: []v3.AttributeKey{
+							{Key: "service_name", IsColumn: false},
+							{Key: "method", IsColumn: false},
+						},
+					},
+				},
+			},
+		},
+		{
+			Start: 1675115596722,               //31st Jan, 3:23
+			End:   1675115596722 + 120*60*1000, //31st Jan, 5:23
+			Step:  5 * time.Minute.Milliseconds(),
+			CompositeQuery: &v3.CompositeQuery{
+				QueryType: v3.QueryTypeBuilder,
+				PanelType: v3.PanelTypeGraph,
+				BuilderQueries: map[string]*v3.BuilderQuery{
+					"A": {
+						QueryName:          "A",
+						StepInterval:       60,
+						DataSource:         v3.DataSourceLogs,
+						AggregateAttribute: v3.AttributeKey{},
+						Filters: &v3.FilterSet{
+							Operator: "AND",
+							Items:    []v3.FilterItem{},
+						},
+						AggregateOperator: v3.AggregateOperatorCount,
+						Expression:        "A",
+						ShiftBy:           86400,
+						GroupBy: []v3.AttributeKey{
+							{Key: "service_name", IsColumn: false},
+							{Key: "method", IsColumn: false},
+						},
+					},
+				},
+			},
+		},
+	}
+	cache := inmemory.New(&inmemory.Options{TTL: 60 * time.Minute, CleanupInterval: 10 * time.Minute})
+	opts := QuerierOptions{
+		Cache:        cache,
+		Reader:       nil,
+		FluxInterval: 5 * time.Minute,
+		KeyGenerator: queryBuilder.NewKeyGenerator(),
+		TestingMode:  true,
+		ReturnedSeries: []*v3.Series{
+			{
+				Labels: map[string]string{},
+				Points: []v3.Point{
+					{Timestamp: 1675115596722 + 60*60*1000 - 86400*1000, Value: 1},               // 30th Jan, 4:23
+					{Timestamp: 1675115596722 + 120*60*1000 - 86400*1000 + 60*60*1000, Value: 2}, // 30th Jan, 6:23
+				},
+			},
+		},
+	}
+	q := NewQuerier(opts)
+
+	// logs queries are generates in ns
+	expectedTimeRangeInQueryString := []string{
+		fmt.Sprintf("timestamp >= %d AND timestamp <= %d", (1675115596722+60*60*1000-86400*1000)*1000000, (1675115596722+120*60*1000-86400*1000)*1000000),
+		fmt.Sprintf("timestamp >= %d AND timestamp <= %d", (1675115596722-86400*1000)*1000000, ((1675115596722+120*60*1000)-86400*1000)*1000000),
+	}
+
+	for i, param := range params {
+		_, errByName, err := q.QueryRange(context.Background(), param, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %s", err)
+		}
+		if len(errByName) > 0 {
+			t.Errorf("expected no error, got %v", errByName)
+		}
+		if !strings.Contains(q.QueriesExecuted()[i], expectedTimeRangeInQueryString[i]) {
+			t.Errorf("expected query to contain %s, got %s", expectedTimeRangeInQueryString[i], q.QueriesExecuted()[i])
+		}
+	}
+}
+
+// timeshift with limit queries
+func TestQueryRangeTimeShiftWithLimitAndCache(t *testing.T) {
+	params := []*v3.QueryRangeParamsV3{
+		{
+			Start: 1675115596722 + 60*60*1000 - 86400*1000,  //30th Jan, 4:23
+			End:   1675115596722 + 120*60*1000 - 86400*1000, //30th Jan, 5:23
+			Step:  5 * time.Minute.Milliseconds(),
+			CompositeQuery: &v3.CompositeQuery{
+				QueryType: v3.QueryTypeBuilder,
+				PanelType: v3.PanelTypeGraph,
+				BuilderQueries: map[string]*v3.BuilderQuery{
+					"A": {
+						QueryName:          "A",
+						StepInterval:       60,
+						DataSource:         v3.DataSourceLogs,
+						AggregateAttribute: v3.AttributeKey{},
+						Filters: &v3.FilterSet{
+							Operator: "AND",
+							Items:    []v3.FilterItem{},
+						},
+						AggregateOperator: v3.AggregateOperatorCount,
+						Expression:        "A",
+						GroupBy: []v3.AttributeKey{
+							{Key: "service_name", IsColumn: false},
+							{Key: "method", IsColumn: false},
+						},
+						Limit: 5,
+					},
+				},
+			},
+		},
+		{
+			Start: 1675115596722,               //31st Jan, 3:23
+			End:   1675115596722 + 120*60*1000, //31st Jan, 5:23
+			Step:  5 * time.Minute.Milliseconds(),
+			CompositeQuery: &v3.CompositeQuery{
+				QueryType: v3.QueryTypeBuilder,
+				PanelType: v3.PanelTypeGraph,
+				BuilderQueries: map[string]*v3.BuilderQuery{
+					"A": {
+						QueryName:          "A",
+						StepInterval:       60,
+						DataSource:         v3.DataSourceLogs,
+						AggregateAttribute: v3.AttributeKey{},
+						Filters: &v3.FilterSet{
+							Operator: "AND",
+							Items:    []v3.FilterItem{},
+						},
+						AggregateOperator: v3.AggregateOperatorCount,
+						Expression:        "A",
+						ShiftBy:           86400,
+						GroupBy: []v3.AttributeKey{
+							{Key: "service_name", IsColumn: false},
+							{Key: "method", IsColumn: false},
+						},
+						Limit: 5,
+					},
+				},
+			},
+		},
+	}
+	cache := inmemory.New(&inmemory.Options{TTL: 60 * time.Minute, CleanupInterval: 10 * time.Minute})
+	opts := QuerierOptions{
+		Cache:        cache,
+		Reader:       nil,
+		FluxInterval: 5 * time.Minute,
+		KeyGenerator: queryBuilder.NewKeyGenerator(),
+		TestingMode:  true,
+		ReturnedSeries: []*v3.Series{
+			{
+				Labels: map[string]string{},
+				Points: []v3.Point{
+					{Timestamp: 1675115596722 + 60*60*1000 - 86400*1000, Value: 1},               // 30th Jan, 4:23
+					{Timestamp: 1675115596722 + 120*60*1000 - 86400*1000 + 60*60*1000, Value: 2}, // 30th Jan, 6:23
+				},
+			},
+		},
+	}
+	q := NewQuerier(opts)
+
+	// logs queries are generates in ns
+	expectedTimeRangeInQueryString := []string{
+		fmt.Sprintf("timestamp >= %d AND timestamp <= %d", (1675115596722+60*60*1000-86400*1000)*1000000, (1675115596722+120*60*1000-86400*1000)*1000000),
+		fmt.Sprintf("timestamp >= %d AND timestamp <= %d", (1675115596722-86400*1000)*1000000, ((1675115596722+120*60*1000)-86400*1000)*1000000),
+	}
+
+	for i, param := range params {
+		_, errByName, err := q.QueryRange(context.Background(), param, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %s", err)
+		}
+		if len(errByName) > 0 {
+			t.Errorf("expected no error, got %v", errByName)
+		}
+		if !strings.Contains(q.QueriesExecuted()[i], expectedTimeRangeInQueryString[i]) {
+			t.Errorf("expected query to contain %s, got %s", expectedTimeRangeInQueryString[i], q.QueriesExecuted()[i])
+		}
+	}
+}
+
+func TestQueryRangeValueTypePromQL(t *testing.T) {
+	// There shouldn't be any caching for value panel type
+	params := []*v3.QueryRangeParamsV3{
+		{
+			Start: 1675115596722,
+			End:   1675115596722 + 120*60*1000,
+			Step:  5 * time.Minute.Milliseconds(),
+			CompositeQuery: &v3.CompositeQuery{
+				QueryType: v3.QueryTypePromQL,
+				PanelType: v3.PanelTypeValue,
+				PromQueries: map[string]*v3.PromQuery{
+					"A": {
+						Query: "signoz_calls_total",
+					},
+				},
+			},
+		},
+		{
+			Start: 1675115596722 + 60*60*1000,
+			End:   1675115596722 + 180*60*1000,
+			Step:  5 * time.Minute.Milliseconds(),
+			CompositeQuery: &v3.CompositeQuery{
+				QueryType: v3.QueryTypePromQL,
+				PanelType: v3.PanelTypeValue,
+				PromQueries: map[string]*v3.PromQuery{
+					"A": {
+						Query: "signoz_latency_bucket",
+					},
+				},
+			},
+		},
+	}
+	cache := inmemory.New(&inmemory.Options{TTL: 60 * time.Minute, CleanupInterval: 10 * time.Minute})
+	opts := QuerierOptions{
+		Cache:        cache,
+		Reader:       nil,
+		FluxInterval: 5 * time.Minute,
+		KeyGenerator: queryBuilder.NewKeyGenerator(),
+
+		TestingMode: true,
+		ReturnedSeries: []*v3.Series{
+			{
+				Labels: map[string]string{
+					"method":       "GET",
+					"service_name": "test",
+					"__name__":     "doesn't matter",
+				},
+				Points: []v3.Point{
+					{Timestamp: 1675115596722, Value: 1},
+					{Timestamp: 1675115596722 + 60*60*1000, Value: 2},
+					{Timestamp: 1675115596722 + 120*60*1000, Value: 3},
+				},
+			},
+		},
+	}
+	q := NewQuerier(opts)
+
+	expectedQueryAndTimeRanges := []struct {
+		query  string
+		ranges []missInterval
+	}{
+		{
+			query: "signoz_calls_total",
+			ranges: []missInterval{
+				{start: 1675115596722, end: 1675115596722 + 120*60*1000},
+			},
+		},
+		{
+			query: "signoz_latency_bucket",
+			ranges: []missInterval{
+				{start: 1675115596722 + 60*60*1000, end: 1675115596722 + 180*60*1000},
+			},
+		},
+	}
+
+	for i, param := range params {
+		_, errByName, err := q.QueryRange(context.Background(), param, nil)
+		if err != nil {
+			t.Errorf("expected no error, got %s", err)
+		}
+		if len(errByName) > 0 {
+			t.Errorf("expected no error, got %v", errByName)
+		}
+
+		if !strings.Contains(q.QueriesExecuted()[i], expectedQueryAndTimeRanges[i].query) {
+			t.Errorf("expected query to contain %s, got %s", expectedQueryAndTimeRanges[i].query, q.QueriesExecuted()[i])
+		}
+		if len(q.TimeRanges()[i]) != 2 {
+			t.Errorf("expected time ranges to be %v, got %v", expectedQueryAndTimeRanges[i].ranges, q.TimeRanges()[i])
+		}
+		if q.TimeRanges()[i][0] != int(expectedQueryAndTimeRanges[i].ranges[0].start) {
+			t.Errorf("expected time ranges to be %v, got %v", expectedQueryAndTimeRanges[i].ranges, q.TimeRanges()[i])
+		}
+		if q.TimeRanges()[i][1] != int(expectedQueryAndTimeRanges[i].ranges[0].end) {
+			t.Errorf("expected time ranges to be %v, got %v", expectedQueryAndTimeRanges[i].ranges, q.TimeRanges()[i])
 		}
 	}
 }

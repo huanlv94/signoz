@@ -1,5 +1,8 @@
+import './FormAlertRules.styles.scss';
+
 import { ExclamationCircleOutlined, SaveOutlined } from '@ant-design/icons';
 import {
+	Button,
 	Col,
 	FormInstance,
 	Modal,
@@ -9,7 +12,12 @@ import {
 } from 'antd';
 import saveAlertApi from 'api/alerts/save';
 import testAlertApi from 'api/alerts/testAlert';
+import logEvent from 'api/common/logEvent';
+import LaunchChatSupport from 'components/LaunchChatSupport/LaunchChatSupport';
+import { alertHelpMessage } from 'components/LaunchChatSupport/util';
+import { ALERTS_DATA_SOURCE_MAP } from 'constants/alerts';
 import { FeatureKeys } from 'constants/features';
+import { QueryParams } from 'constants/query';
 import { PANEL_TYPES } from 'constants/queryBuilder';
 import ROUTES from 'constants/routes';
 import QueryTypeTag from 'container/NewWidget/LeftContainer/QueryTypeTag';
@@ -17,12 +25,13 @@ import PlotTag from 'container/NewWidget/LeftContainer/WidgetGraph/PlotTag';
 import { BuilderUnitsFilter } from 'container/QueryBuilder/filters';
 import { useQueryBuilder } from 'hooks/queryBuilder/useQueryBuilder';
 import { useShareBuilderUrl } from 'hooks/queryBuilder/useShareBuilderUrl';
-import { updateStepInterval } from 'hooks/queryBuilder/useStepInterval';
 import { MESSAGE, useIsFeatureDisabled } from 'hooks/useFeatureFlag';
 import { useNotifications } from 'hooks/useNotifications';
+import useUrlQuery from 'hooks/useUrlQuery';
 import history from 'lib/history';
 import { mapQueryDataFromApi } from 'lib/newQueryBuilder/queryBuilderMappers/mapQueryDataFromApi';
 import { mapQueryDataToApi } from 'lib/newQueryBuilder/queryBuilderMappers/mapQueryDataToApi';
+import { isEqual } from 'lodash-es';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from 'react-query';
@@ -53,6 +62,7 @@ import {
 import UserGuide from './UserGuide';
 import { getSelectedQueryOptions } from './utils';
 
+// eslint-disable-next-line sonarjs/cognitive-complexity
 function FormAlertRules({
 	alertType,
 	formInstance,
@@ -62,27 +72,47 @@ function FormAlertRules({
 	// init namespace for translations
 	const { t } = useTranslation('alerts');
 
-	const { minTime, maxTime, selectedTime: globalSelectedInterval } = useSelector<
+	const { selectedTime: globalSelectedInterval } = useSelector<
 		AppState,
 		GlobalReducer
 	>((state) => state.globalTime);
 
+	const urlQuery = useUrlQuery();
+
+	// In case of alert the panel types should always be "Graph" only
+	const panelType = PANEL_TYPES.TIME_SERIES;
+
 	const {
 		currentQuery,
-		panelType,
 		stagedQuery,
 		handleRunQuery,
+		handleSetConfig,
+		initialDataSource,
 		redirectWithQueryBuilderData,
 	} = useQueryBuilder();
+
+	useEffect(() => {
+		handleSetConfig(panelType || PANEL_TYPES.TIME_SERIES, initialDataSource);
+	}, [handleSetConfig, initialDataSource, panelType]);
 
 	// use query client
 	const ruleCache = useQueryClient();
 
+	const isNewRule = ruleId === 0;
+
 	const [loading, setLoading] = useState(false);
+	const [queryStatus, setQueryStatus] = useState<string>('');
 
 	// alertDef holds the form values to be posted
 	const [alertDef, setAlertDef] = useState<AlertDef>(initialValue);
 	const [yAxisUnit, setYAxisUnit] = useState<string>(currentQuery.unit || '');
+
+	useEffect(() => {
+		if (!isEqual(currentQuery.unit, yAxisUnit)) {
+			setYAxisUnit(currentQuery.unit || '');
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [currentQuery.unit]);
 
 	// initQuery contains initial query when component was mounted
 	const initQuery = useMemo(() => initialValue.condition.compositeQuery, [
@@ -108,28 +138,51 @@ function FormAlertRules({
 	useShareBuilderUrl(sq);
 
 	useEffect(() => {
-		setAlertDef(initialValue);
-	}, [initialValue]);
+		const broadcastToSpecificChannels =
+			(initialValue &&
+				initialValue.preferredChannels &&
+				initialValue.preferredChannels.length > 0) ||
+			isNewRule;
+
+		setAlertDef({
+			...initialValue,
+			broadcastToAll: !broadcastToSpecificChannels,
+		});
+	}, [initialValue, isNewRule]);
 
 	useEffect(() => {
 		// Set selectedQueryName based on the length of queryOptions
-		setAlertDef((def) => ({
-			...def,
-			condition: {
-				...def.condition,
-				selectedQueryName:
-					queryOptions.length > 0 ? String(queryOptions[0].value) : undefined,
-			},
-		}));
-	}, [currentQuery?.queryType, queryOptions]);
+		const selectedQueryName = alertDef?.condition?.selectedQueryName;
+		if (
+			!selectedQueryName ||
+			!queryOptions.some((option) => option.value === selectedQueryName)
+		) {
+			setAlertDef((def) => ({
+				...def,
+				condition: {
+					...def.condition,
+					selectedQueryName:
+						queryOptions.length > 0 ? String(queryOptions[0].value) : undefined,
+				},
+			}));
+		}
+	}, [alertDef, currentQuery?.queryType, queryOptions]);
 
 	const onCancelHandler = useCallback(() => {
-		history.replace(ROUTES.LIST_ALL_ALERT);
-	}, []);
+		urlQuery.delete(QueryParams.compositeQuery);
+		urlQuery.delete(QueryParams.panelTypes);
+		urlQuery.delete(QueryParams.ruleId);
+		urlQuery.delete(QueryParams.relativeTime);
+		history.replace(`${ROUTES.LIST_ALL_ALERT}?${urlQuery.toString()}`);
+	}, [urlQuery]);
 
 	// onQueryCategoryChange handles changes to query category
 	// in state as well as sets additional defaults
 	const onQueryCategoryChange = (val: EQueryType): void => {
+		const element = document.getElementById('top');
+		if (element) {
+			element.scrollIntoView({ behavior: 'smooth' });
+		}
 		if (val === EQueryType.PROM) {
 			setAlertDef({
 				...alertDef,
@@ -142,7 +195,9 @@ function FormAlertRules({
 		}
 		const query: Query = { ...currentQuery, queryType: val };
 
-		redirectWithQueryBuilderData(updateStepInterval(query, maxTime, minTime));
+		// update step interval is removed from here as if the user enters
+		// any value we will use that rather than auto update
+		redirectWithQueryBuilderData(query);
 	};
 	const { notifications } = useNotifications();
 
@@ -204,7 +259,7 @@ function FormAlertRules({
 
 		if (
 			!currentQuery.builder.queryData ||
-			currentQuery.builder.queryData.length === 0
+			currentQuery.builder.queryData?.length === 0
 		) {
 			notifications.error({
 				message: 'Error',
@@ -243,6 +298,7 @@ function FormAlertRules({
 	const preparePostData = (): AlertDef => {
 		const postableAlert: AlertDef = {
 			...alertDef,
+			preferredChannels: alertDef.broadcastToAll ? [] : alertDef.preferredChannels,
 			alertType,
 			source: window?.location.toString(),
 			ruleType:
@@ -260,7 +316,7 @@ function FormAlertRules({
 					promQueries: mapQueryDataToApi(currentQuery.promql, 'name').data,
 					chQueries: mapQueryDataToApi(currentQuery.clickhouse_sql, 'name').data,
 					queryType: currentQuery.queryType,
-					panelType: initQuery.panelType,
+					panelType: panelType || initQuery.panelType,
 					unit: currentQuery.unit,
 				},
 			},
@@ -273,9 +329,10 @@ function FormAlertRules({
 		alertDef,
 		alertType,
 		initQuery,
+		panelType,
 	]);
 
-	const isAlertAvialable = useIsFeatureDisabled(
+	const isAlertAvailable = useIsFeatureDisabled(
 		FeatureKeys.QUERY_BUILDER_ALERTS,
 	);
 
@@ -284,8 +341,13 @@ function FormAlertRules({
 			return;
 		}
 		const postableAlert = memoizedPreparePostData();
-
 		setLoading(true);
+
+		let logData = {
+			status: 'error',
+			statusMessage: t('unexpected_error'),
+		};
+
 		try {
 			const apiReq =
 				ruleId && ruleId > 0
@@ -295,38 +357,73 @@ function FormAlertRules({
 			const response = await saveAlertApi(apiReq);
 
 			if (response.statusCode === 200) {
+				logData = {
+					status: 'success',
+					statusMessage:
+						!ruleId || ruleId === 0 ? t('rule_created') : t('rule_edited'),
+				};
+
 				notifications.success({
 					message: 'Success',
-					description:
-						!ruleId || ruleId === 0 ? t('rule_created') : t('rule_edited'),
+					description: logData.statusMessage,
 				});
 
 				// invalidate rule in cache
 				ruleCache.invalidateQueries(['ruleId', ruleId]);
 
+				// eslint-disable-next-line sonarjs/no-identical-functions
 				setTimeout(() => {
-					history.replace(ROUTES.LIST_ALL_ALERT);
+					urlQuery.delete(QueryParams.compositeQuery);
+					urlQuery.delete(QueryParams.panelTypes);
+					urlQuery.delete(QueryParams.ruleId);
+					urlQuery.delete(QueryParams.relativeTime);
+					history.replace(`${ROUTES.LIST_ALL_ALERT}?${urlQuery.toString()}`);
 				}, 2000);
 			} else {
+				logData = {
+					status: 'error',
+					statusMessage: response.error || t('unexpected_error'),
+				};
+
 				notifications.error({
 					message: 'Error',
-					description: response.error || t('unexpected_error'),
+					description: logData.statusMessage,
 				});
 			}
 		} catch (e) {
+			logData = {
+				status: 'error',
+				statusMessage: t('unexpected_error'),
+			};
+
 			notifications.error({
 				message: 'Error',
-				description: t('unexpected_error'),
+				description: logData.statusMessage,
 			});
 		}
+
 		setLoading(false);
+
+		logEvent('Alert: Save alert', {
+			...logData,
+			dataSource: ALERTS_DATA_SOURCE_MAP[postableAlert?.alertType as AlertTypes],
+			channelNames: postableAlert?.preferredChannels,
+			broadcastToAll: postableAlert?.broadcastToAll,
+			isNewRule: !ruleId || ruleId === 0,
+			ruleId,
+			queryType: currentQuery.queryType,
+			alertId: postableAlert?.id,
+			alertName: postableAlert?.alert,
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [
-		t,
 		isFormValid,
-		ruleId,
-		ruleCache,
 		memoizedPreparePostData,
+		ruleId,
 		notifications,
+		t,
+		ruleCache,
+		urlQuery,
 	]);
 
 	const onSaveHandler = useCallback(async () => {
@@ -344,6 +441,7 @@ function FormAlertRules({
 			centered: true,
 			content,
 			onOk: saveRule,
+			className: 'create-alert-modal',
 		});
 	}, [t, saveRule, currentQuery]);
 
@@ -353,6 +451,7 @@ function FormAlertRules({
 		}
 		const postableAlert = memoizedPreparePostData();
 
+		let statusResponse = { status: 'failed', message: '' };
 		setLoading(true);
 		try {
 			const response = await testAlertApi({ data: postableAlert });
@@ -364,29 +463,51 @@ function FormAlertRules({
 						message: 'Error',
 						description: t('no_alerts_found'),
 					});
+					statusResponse = { status: 'failed', message: t('no_alerts_found') };
 				} else {
 					notifications.success({
 						message: 'Success',
 						description: t('rule_test_fired'),
 					});
+					statusResponse = { status: 'success', message: t('rule_test_fired') };
 				}
 			} else {
 				notifications.error({
 					message: 'Error',
 					description: response.error || t('unexpected_error'),
 				});
+				statusResponse = {
+					status: 'failed',
+					message: response.error || t('unexpected_error'),
+				};
 			}
 		} catch (e) {
 			notifications.error({
 				message: 'Error',
 				description: t('unexpected_error'),
 			});
+			statusResponse = { status: 'failed', message: t('unexpected_error') };
 		}
 		setLoading(false);
+		logEvent('Alert: Test notification', {
+			dataSource: ALERTS_DATA_SOURCE_MAP[alertDef?.alertType as AlertTypes],
+			channelNames: postableAlert?.preferredChannels,
+			broadcastToAll: postableAlert?.broadcastToAll,
+			isNewRule: !ruleId || ruleId === 0,
+			ruleId,
+			queryType: currentQuery.queryType,
+			status: statusResponse.status,
+			statusMessage: statusResponse.message,
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [t, isFormValid, memoizedPreparePostData, notifications]);
 
 	const renderBasicInfo = (): JSX.Element => (
-		<BasicInfo alertDef={alertDef} setAlertDef={setAlertDef} />
+		<BasicInfo
+			alertDef={alertDef}
+			setAlertDef={setAlertDef}
+			isNewRule={isNewRule}
+		/>
 	);
 
 	const renderQBChartPreview = (): JSX.Element => (
@@ -402,6 +523,8 @@ function FormAlertRules({
 			selectedInterval={globalSelectedInterval}
 			alertDef={alertDef}
 			yAxisUnit={yAxisUnit || ''}
+			graphType={panelType || PANEL_TYPES.TIME_SERIES}
+			setQueryStatus={setQueryStatus}
 		/>
 	);
 
@@ -418,15 +541,15 @@ function FormAlertRules({
 			alertDef={alertDef}
 			selectedInterval={globalSelectedInterval}
 			yAxisUnit={yAxisUnit || ''}
+			graphType={panelType || PANEL_TYPES.TIME_SERIES}
+			setQueryStatus={setQueryStatus}
 		/>
 	);
 
-	const isNewRule = ruleId === 0;
-
 	const isAlertNameMissing = !formInstance.getFieldValue('alert');
 
-	const isAlertAvialableToSave =
-		isAlertAvialable &&
+	const isAlertAvailableToSave =
+		isAlertAvailable &&
 		currentQuery.queryType === EQueryType.QUERY_BUILDER &&
 		alertType !== AlertTypes.METRICS_BASED_ALERT;
 
@@ -442,16 +565,65 @@ function FormAlertRules({
 		}));
 	};
 
+	const isChannelConfigurationValid =
+		alertDef?.broadcastToAll ||
+		(alertDef.preferredChannels && alertDef.preferredChannels.length > 0);
+
+	const isRuleCreated = !ruleId || ruleId === 0;
+
+	useEffect(() => {
+		if (!isRuleCreated) {
+			logEvent('Alert: Edit page visited', {
+				ruleId,
+				dataSource: ALERTS_DATA_SOURCE_MAP[alertType as AlertTypes],
+			});
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	function handleRedirection(option: AlertTypes): void {
+		let url = '';
+		switch (option) {
+			case AlertTypes.METRICS_BASED_ALERT:
+				url =
+					'https://signoz.io/docs/alerts-management/metrics-based-alerts/?utm_source=product&utm_medium=alert-creation-page#examples';
+				break;
+			case AlertTypes.LOGS_BASED_ALERT:
+				url =
+					'https://signoz.io/docs/alerts-management/log-based-alerts/?utm_source=product&utm_medium=alert-creation-page#examples';
+				break;
+			case AlertTypes.TRACES_BASED_ALERT:
+				url =
+					'https://signoz.io/docs/alerts-management/trace-based-alerts/?utm_source=product&utm_medium=alert-creation-page#examples';
+				break;
+			case AlertTypes.EXCEPTIONS_BASED_ALERT:
+				url =
+					'https://signoz.io/docs/alerts-management/exceptions-based-alerts/?utm_source=product&utm_medium=alert-creation-page#examples';
+				break;
+			default:
+				break;
+		}
+		logEvent('Alert: Check example alert clicked', {
+			dataSource: ALERTS_DATA_SOURCE_MAP[alertDef?.alertType as AlertTypes],
+			isNewRule: !ruleId || ruleId === 0,
+			ruleId,
+			queryType: currentQuery.queryType,
+			link: url,
+		});
+		window.open(url, '_blank');
+	}
+
 	return (
 		<>
 			{Element}
 
-			<PanelContainer>
+			<PanelContainer id="top">
 				<StyledLeftContainer flex="5 1 600px" md={18}>
 					<MainFormContainer
 						initialValues={initialValue}
 						layout="vertical"
 						form={formInstance}
+						className="main-container"
 					>
 						{currentQuery.queryType === EQueryType.QUERY_BUILDER &&
 							renderQBChartPreview()}
@@ -471,7 +643,11 @@ function FormAlertRules({
 							queryCategory={currentQuery.queryType}
 							setQueryCategory={onQueryCategoryChange}
 							alertType={alertType || AlertTypes.METRICS_BASED_ALERT}
-							runQuery={handleRunQuery}
+							runQuery={(): void => handleRunQuery(true)}
+							alertDef={alertDef}
+							panelType={panelType || PANEL_TYPES.TIME_SERIES}
+							key={currentQuery.queryType}
+							ruleId={ruleId}
 						/>
 
 						<RuleOptions
@@ -483,13 +659,18 @@ function FormAlertRules({
 
 						{renderBasicInfo()}
 						<ButtonContainer>
-							<Tooltip title={isAlertAvialableToSave ? MESSAGE.ALERT : ''}>
+							<Tooltip title={isAlertAvailableToSave ? MESSAGE.ALERT : ''}>
 								<ActionButton
 									loading={loading || false}
 									type="primary"
 									onClick={onSaveHandler}
 									icon={<SaveOutlined />}
-									disabled={isAlertNameMissing || isAlertAvialableToSave}
+									disabled={
+										isAlertNameMissing ||
+										isAlertAvailableToSave ||
+										!isChannelConfigurationValid ||
+										queryStatus === 'error'
+									}
 								>
 									{isNewRule ? t('button_createrule') : t('button_savechanges')}
 								</ActionButton>
@@ -497,6 +678,11 @@ function FormAlertRules({
 
 							<ActionButton
 								loading={loading || false}
+								disabled={
+									isAlertNameMissing ||
+									!isChannelConfigurationValid ||
+									queryStatus === 'error'
+								}
 								type="default"
 								onClick={onTestRuleHandler}
 							>
@@ -516,6 +702,33 @@ function FormAlertRules({
 				</StyledLeftContainer>
 				<Col flex="1 1 300px">
 					<UserGuide queryType={currentQuery.queryType} />
+					<div className="info-help-btns">
+						<Button
+							style={{ height: 32 }}
+							onClick={(): void =>
+								handleRedirection(alertDef?.alertType as AlertTypes)
+							}
+							className="doc-redirection-btn"
+						>
+							Check an example alert
+						</Button>
+						<LaunchChatSupport
+							attributes={{
+								alert: alertDef?.alert,
+								alertType: alertDef?.alertType,
+								id: ruleId,
+								ruleType: alertDef?.ruleType,
+								state: (alertDef as any)?.state,
+								panelType,
+								screen: isRuleCreated ? 'Edit Alert' : 'New Alert',
+							}}
+							className="facing-issue-btn"
+							eventName="Alert: Facing Issues in alert"
+							buttonText="Need help with this alert?"
+							message={alertHelpMessage(alertDef, ruleId)}
+							onHoverText="Click here to get help with this alert"
+						/>
+					</div>
 				</Col>
 			</PanelContainer>
 		</>

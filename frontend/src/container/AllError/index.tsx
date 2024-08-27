@@ -12,6 +12,7 @@ import { ColumnType, TablePaginationConfig } from 'antd/es/table';
 import { FilterValue, SorterResult } from 'antd/es/table/interface';
 import { ColumnsType } from 'antd/lib/table';
 import { FilterConfirmProps } from 'antd/lib/table/interface';
+import logEvent from 'api/common/logEvent';
 import getAll from 'api/errors/getAll';
 import getErrorCounts from 'api/errors/getErrorCounts';
 import { ResizeTable } from 'components/ResizeTable';
@@ -23,7 +24,8 @@ import { convertRawQueriesToTraceSelectedTags } from 'hooks/useResourceAttribute
 import useUrlQuery from 'hooks/useUrlQuery';
 import createQueryParams from 'lib/createQueryParams';
 import history from 'lib/history';
-import { useCallback, useEffect, useMemo } from 'react';
+import { isUndefined } from 'lodash-es';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueries } from 'react-query';
 import { useSelector } from 'react-redux';
@@ -47,6 +49,15 @@ import {
 	getUpdatePageSize,
 	urlKey,
 } from './utils';
+
+type QueryParams = {
+	order: string;
+	offset: number;
+	orderParam: string;
+	pageSize: number;
+	exceptionType?: string;
+	serviceName?: string;
+};
 
 function AllErrors(): JSX.Element {
 	const { maxTime, minTime, loading } = useSelector<AppState, GlobalReducer>(
@@ -162,16 +173,23 @@ function AllErrors(): JSX.Element {
 				filterKey,
 				filterValue || '',
 			);
-			history.replace(
-				`${pathname}?${createQueryParams({
-					order: updatedOrder,
-					offset: getUpdatedOffset,
-					orderParam: getUpdatedParams,
-					pageSize: getUpdatedPageSize,
-					exceptionType: exceptionFilterValue,
-					serviceName: serviceFilterValue,
-				})}`,
-			);
+
+			const queryParams: QueryParams = {
+				order: updatedOrder,
+				offset: getUpdatedOffset,
+				orderParam: getUpdatedParams,
+				pageSize: getUpdatedPageSize,
+			};
+
+			if (exceptionFilterValue && exceptionFilterValue !== 'undefined') {
+				queryParams.exceptionType = exceptionFilterValue;
+			}
+
+			if (serviceFilterValue && serviceFilterValue !== 'undefined') {
+				queryParams.serviceName = serviceFilterValue;
+			}
+
+			history.replace(`${pathname}?${createQueryParams(queryParams)}`);
 			confirm();
 		},
 		[
@@ -198,8 +216,10 @@ function AllErrors(): JSX.Element {
 					<Input
 						placeholder={placeholder}
 						value={selectedKeys[0]}
-						onChange={(e): void =>
-							setSelectedKeys(e.target.value ? [e.target.value] : [])
+						onChange={
+							(e): void => setSelectedKeys(e.target.value ? [e.target.value] : [])
+
+							// Need to fix this logic, when the value in empty, it's setting undefined string as value
 						}
 						allowClear
 						defaultValue={getDefaultFilterValue(
@@ -391,6 +411,26 @@ function AllErrors(): JSX.Element {
 		},
 		[pathname],
 	);
+
+	const logEventCalledRef = useRef(false);
+	useEffect(() => {
+		if (
+			!logEventCalledRef.current &&
+			!isUndefined(errorCountResponse.data?.payload)
+		) {
+			const selectedEnvironments = queries.find(
+				(val) => val.tagKey === 'resource_deployment_environment',
+			)?.tagValue;
+
+			logEvent('Exception: List page visited', {
+				numberOfExceptions: errorCountResponse?.data?.payload,
+				selectedEnvironments,
+				resourceAttributeUsed: !!queries?.length,
+			});
+			logEventCalledRef.current = true;
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [errorCountResponse.data?.payload]);
 
 	return (
 		<ResizeTable

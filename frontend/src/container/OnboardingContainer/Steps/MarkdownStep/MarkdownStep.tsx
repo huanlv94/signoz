@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import { MarkdownRenderer } from 'components/MarkdownRenderer/MarkdownRenderer';
 import { ApmDocFilePaths } from 'container/OnboardingContainer/constants/apmDocFilePaths';
+import { AwsMonitoringDocFilePaths } from 'container/OnboardingContainer/constants/awsMonitoringDocFilePaths';
+import { AzureMonitoringDocFilePaths } from 'container/OnboardingContainer/constants/azureMonitoringDocFilePaths';
 import { InfraMonitoringDocFilePaths } from 'container/OnboardingContainer/constants/infraMonitoringDocFilePaths';
 import { LogsManagementDocFilePaths } from 'container/OnboardingContainer/constants/logsManagementDocFilePaths';
 import {
@@ -8,7 +10,6 @@ import {
 	useOnboardingContext,
 } from 'container/OnboardingContainer/context/OnboardingContext';
 import { ModulesMap } from 'container/OnboardingContainer/OnboardingContainer';
-import useAnalytics from 'hooks/analytics/useAnalytics';
 import { useEffect, useState } from 'react';
 
 export interface IngestionInfoProps {
@@ -27,8 +28,6 @@ export default function MarkdownStep(): JSX.Element {
 		selectedFramework,
 		selectedMethod,
 	} = useOnboardingContext();
-
-	const { trackEvent } = useAnalytics();
 
 	const [markdownContent, setMarkdownContent] = useState('');
 
@@ -69,6 +68,10 @@ export default function MarkdownStep(): JSX.Element {
 			docFilePaths = LogsManagementDocFilePaths;
 		} else if (selectedModule?.id === ModulesMap.InfrastructureMonitoring) {
 			docFilePaths = InfraMonitoringDocFilePaths;
+		} else if (selectedModule?.id === ModulesMap.AwsMonitoring) {
+			docFilePaths = AwsMonitoringDocFilePaths;
+		} else if (selectedModule?.id === ModulesMap.AzureMonitoring) {
+			docFilePaths = AzureMonitoringDocFilePaths;
 		}
 		// @ts-ignore
 		if (docFilePaths && docFilePaths[path]) {
@@ -84,27 +87,8 @@ export default function MarkdownStep(): JSX.Element {
 		SIGNOZ_INGESTION_KEY:
 			ingestionData?.SIGNOZ_INGESTION_KEY || '<SIGNOZ_INGESTION_KEY>',
 		REGION: ingestionData?.REGION || 'region',
+		OTEL_VERSION: '0.88.0',
 	};
-
-	useEffect(() => {
-		trackEvent(
-			`Onboarding: ${activeStep?.module?.id}: ${selectedDataSource?.name}: ${activeStep?.step?.title}`,
-			{
-				dataSource: selectedDataSource,
-				framework: selectedFramework,
-				environment: selectedEnvironment,
-				module: {
-					name: activeStep?.module?.title,
-					id: activeStep?.module?.id,
-				},
-				step: {
-					name: activeStep?.step?.title,
-					id: activeStep?.step?.id,
-				},
-			},
-		);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [step]);
 
 	return (
 		<div className="markdown-container">
