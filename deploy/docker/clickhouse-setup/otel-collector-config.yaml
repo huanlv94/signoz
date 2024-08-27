@@ -6,7 +6,7 @@ receivers:
       groups:
         autodiscover:
           limit: 100
-          prefix: /ecs/S-travala
+          prefix: /ecs/
   # tcplog/docker:
   #   listen_address: "0.0.0.0:2255"
   #   operators:
