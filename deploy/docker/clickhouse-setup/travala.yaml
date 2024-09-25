@@ -2,7 +2,6 @@ version: "2.4"
 
 x-clickhouse-defaults: &clickhouse-defaults
   restart: on-failure
-  # addding non LTS version due to this fix https://github.com/ClickHouse/ClickHouse/commit/32caf8716352f45c1b617274c7508c86b7d1afab
   image: clickhouse/clickhouse-server:24.1.2-alpine
   tty: true
   depends_on:
@@ -161,8 +160,6 @@ services:
       - --queryService.url=http://query-service:8085
       - --storage.path=/data
 
-  # Notes for Maintainers/Contributors who will change Line Numbers of Frontend & Query-Section. Please Update Line Numbers in `./scripts/commentLinesForSetup.sh` & `./CONTRIBUTING.md`
-
   query-service:
     image: signoz/query-service:${DOCKER_TAG:-0.52.0}
     container_name: signoz-query-service
@@ -269,40 +266,3 @@ services:
         condition: service_completed_successfully
       query-service:
         condition: service_healthy
-
-  # logspout:
-  #   image: "gliderlabs/logspout:v3.2.14"
-  #   container_name: signoz-logspout
-  #   volumes:
-  #     - /etc/hostname:/etc/host_hostname:ro
-  #     - /var/run/docker.sock:/var/run/docker.sock
-  #   command: syslog+tcp://otel-collector:2255
-  #   depends_on:
-  #     - otel-collector
-  #   restart: on-failure
-
-  # hotrod:
-  #   image: jaegertracing/example-hotrod:1.30
-  #   container_name: hotrod
-  #   logging:
-  #     options:
-  #       max-size: 50m
-  #       max-file: "3"
-  #   command: [ "all" ]
-  #   environment:
-  #     - JAEGER_ENDPOINT=http://otel-collector:14268/api/traces
-
-  # load-hotrod:
-  #   image: "signoz/locust:1.2.3"
-  #   container_name: load-hotrod
-  #   hostname: load-hotrod
-  #   environment:
-  #     ATTACKED_HOST: http://hotrod:8080
-  #     LOCUST_MODE: standalone
-  #     NO_PROXY: standalone
-  #     TASK_DELAY_FROM: 5
-  #     TASK_DELAY_TO: 30
-  #     QUIET_MODE: "${QUIET_MODE:-false}"
-  #     LOCUST_OPTS: "--headless -u 10 -r 1"
-  #   volumes:
-  #     - ../common/locust-scripts:/locust
