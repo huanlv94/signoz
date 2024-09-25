@@ -389,9 +389,9 @@ export default function ModuleStepsContainer({
 				<div>
 					<div className="steps-container-header">
 						<div className="brand-logo" onClick={handleLogoClick}>
-							<img src="/Logos/signoz-brand-logo.svg" alt="SigNoz" />
+							<img src="/Logos/travala.png" alt="Travala.com" />
 
-							<div className="brand-logo-name">SigNoz</div>
+							<div className="brand-logo-name">Travala.com</div>
 						</div>
 					</div>
 

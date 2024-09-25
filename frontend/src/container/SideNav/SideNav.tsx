@@ -383,14 +383,15 @@ function SideNav({
 								onClickHandler(ROUTES.APPLICATION, event);
 							}}
 						>
-							<img src="/Logos/signoz-brand-logo.svg" alt="SigNoz" />
+							<img src="/Logos/travala.png" alt="Travala.com" />
 
-							<span className="brand-logo-name nav-item-label"> SigNoz </span>
+							<span className="brand-logo-name nav-item-label"> Travala.com </span>
 						</div>
 
-						{licenseTag && (
+						{/*{licenseTag && (
 							<div className="license tag nav-item-label">{licenseTag}</div>
-						)}
+						)}*/}
+						<div className="license tag nav-item-label" style={{background: '#0219c4'}}>Enterprise</div>
 					</div>
 
 					<Tooltip
