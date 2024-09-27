@@ -61,7 +61,7 @@ export const slackSupportMenuItem = {
 
 export const trySignozCloudMenuItem: SidebarItem = {
 	key: 'trySignozCloud',
-	label: 'Try Signoz Cloud',
+	label: 'Go to Travala',
 	icon: <Cloudy size={16} />,
 };
 

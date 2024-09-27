@@ -157,9 +157,10 @@ function SideNav({
 		licenseData?.payload?.licenses?.find((e: License) => e.isCurrent)?.status ||
 		'';
 
-	const isLicenseActive =
-		licenseStatus?.toLocaleLowerCase() ===
-		LICENSE_PLAN_STATUS.VALID.toLocaleLowerCase();
+	// const isLicenseActive =
+	// 	licenseStatus?.toLocaleLowerCase() ===
+	// 	LICENSE_PLAN_STATUS.VALID.toLocaleLowerCase();
+	const isLicenseActive = true;
 
 	const isEnterprise = licenseData?.payload?.licenses?.some(
 		(license: License) =>
@@ -168,7 +169,7 @@ function SideNav({
 
 	const onClickSignozCloud = (): void => {
 		window.open(
-			'https://signoz.io/oss-to-cloud/?utm_source=product_navbar&utm_medium=frontend&utm_campaign=oss_users',
+			'https://www.travala.com',
 			'_blank',
 		);
 	};
@@ -443,14 +444,14 @@ function SideNav({
 							onClick={onClickShortcuts}
 						/>
 
-						{licenseData && !isLicenseActive && (
+						{/*{licenseData && !isLicenseActive && (
 							<NavItem
 								key="trySignozCloud"
 								item={trySignozCloudMenuItem}
 								isActive={false}
 								onClick={onClickSignozCloud}
 							/>
-						)}
+						)}*/}
 
 						{userManagementMenuItems.map(
 							(item, index): JSX.Element => (
