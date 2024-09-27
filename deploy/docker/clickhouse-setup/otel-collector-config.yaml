@@ -162,10 +162,13 @@ exporters:
     dsn: tcp://clickhouse:9000/signoz_logs
     docker_multi_node_cluster: ${DOCKER_MULTI_NODE_CLUSTER}
     timeout: 10s
+    use_new_schema: true
   # logging: {}
 
 service:
   telemetry:
+    logs:
+      encoding: json
     metrics:
       address: 0.0.0.0:8888
   extensions:
