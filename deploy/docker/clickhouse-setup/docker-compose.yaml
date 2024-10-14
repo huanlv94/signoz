@@ -305,3 +305,7 @@ services:
   #     LOCUST_OPTS: "--headless -u 10 -r 1"
   #   volumes:
   #     - ../common/locust-scripts:/locust
+
+include:
+  - test-app-docker-compose.yaml
+  - docker-compose-minimal.yaml
