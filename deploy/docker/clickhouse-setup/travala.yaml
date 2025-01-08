@@ -269,6 +269,3 @@ services:
         condition: service_completed_successfully
       query-service:
         condition: service_healthy
-
-include:
-  - docker-compose-minimal.yaml
