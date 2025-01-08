@@ -1,4 +1,4 @@
-FROM node:18.18.0-alpine as builder
+FROM node:20.18.1-alpine as builder
 WORKDIR /frontend
 COPY . .
 RUN yarn install
