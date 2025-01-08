@@ -29,6 +29,7 @@ import (
 
 	logsv3 "go.signoz.io/signoz/pkg/query-service/app/logs/v3"
 	tracesV3 "go.signoz.io/signoz/pkg/query-service/app/traces/v3"
+	tracesV4 "go.signoz.io/signoz/pkg/query-service/app/traces/v4"
 	"go.signoz.io/signoz/pkg/query-service/formatter"
 
 	yaml "gopkg.in/yaml.v2"
@@ -50,6 +51,8 @@ type ThresholdRule struct {
 	// used for attribute metadata enrichment for logs and traces
 	logsKeys  map[string]v3.AttributeKey
 	spansKeys map[string]v3.AttributeKey
+
+	useTraceNewSchema bool
 }
 
 func NewThresholdRule(
@@ -58,6 +61,7 @@ func NewThresholdRule(
 	featureFlags interfaces.FeatureLookup,
 	reader interfaces.Reader,
 	useLogsNewSchema bool,
+	useTraceNewSchema bool,
 	opts ...RuleOption,
 ) (*ThresholdRule, error) {
 
@@ -69,24 +73,27 @@ func NewThresholdRule(
 	}
 
 	t := ThresholdRule{
-		BaseRule: baseRule,
-		version:  p.Version,
+		BaseRule:          baseRule,
+		version:           p.Version,
+		useTraceNewSchema: useTraceNewSchema,
 	}
 
 	querierOption := querier.QuerierOptions{
-		Reader:           reader,
-		Cache:            nil,
-		KeyGenerator:     queryBuilder.NewKeyGenerator(),
-		FeatureLookup:    featureFlags,
-		UseLogsNewSchema: useLogsNewSchema,
+		Reader:            reader,
+		Cache:             nil,
+		KeyGenerator:      queryBuilder.NewKeyGenerator(),
+		FeatureLookup:     featureFlags,
+		UseLogsNewSchema:  useLogsNewSchema,
+		UseTraceNewSchema: useTraceNewSchema,
 	}
 
 	querierOptsV2 := querierV2.QuerierOptions{
-		Reader:           reader,
-		Cache:            nil,
-		KeyGenerator:     queryBuilder.NewKeyGenerator(),
-		FeatureLookup:    featureFlags,
-		UseLogsNewSchema: useLogsNewSchema,
+		Reader:            reader,
+		Cache:             nil,
+		KeyGenerator:      queryBuilder.NewKeyGenerator(),
+		FeatureLookup:     featureFlags,
+		UseLogsNewSchema:  useLogsNewSchema,
+		UseTraceNewSchema: useTraceNewSchema,
 	}
 
 	t.querier = querier.NewQuerier(querierOption)
@@ -151,6 +158,18 @@ func (r *ThresholdRule) prepareQueryRange(ts time.Time) (*v3.QueryRangeParamsV3,
 			// If the step interval is less than the minimum allowed step interval, set it to the minimum allowed step interval
 			if minStep := common.MinAllowedStepInterval(start, end); q.StepInterval < minStep {
 				q.StepInterval = minStep
+			}
+
+			q.SetShiftByFromFunc()
+
+			if q.DataSource == v3.DataSourceMetrics && constants.UseMetricsPreAggregation() {
+				// if the time range is greater than 1 day, and less than 1 week set the step interval to be multiple of 5 minutes
+				// if the time range is greater than 1 week, set the step interval to be multiple of 30 mins
+				if end-start >= 24*time.Hour.Milliseconds() && end-start < 7*24*time.Hour.Milliseconds() {
+					q.StepInterval = int64(math.Round(float64(q.StepInterval)/300)) * 300
+				} else if end-start >= 7*24*time.Hour.Milliseconds() {
+					q.StepInterval = int64(math.Round(float64(q.StepInterval)/1800)) * 1800
+				}
 			}
 		}
 	}
@@ -284,7 +303,11 @@ func (r *ThresholdRule) buildAndRunQuery(ctx context.Context, ts time.Time) (Vec
 				return nil, err
 			}
 			r.spansKeys = spanKeys
-			tracesV3.Enrich(params, spanKeys)
+			if r.useTraceNewSchema {
+				tracesV4.Enrich(params, spanKeys)
+			} else {
+				tracesV3.Enrich(params, spanKeys)
+			}
 		}
 	}
 

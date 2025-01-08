@@ -18,19 +18,18 @@ import { QueryParams } from 'constants/query';
 import { PANEL_TYPES } from 'constants/queryBuilder';
 import useCreateAlerts from 'hooks/queryBuilder/useCreateAlerts';
 import useComponentPermission from 'hooks/useComponentPermission';
+import useUrlQuery from 'hooks/useUrlQuery';
 import history from 'lib/history';
 import { RowData } from 'lib/query/createTableColumnsFromQuery';
 import { isEmpty } from 'lodash-es';
 import { CircleX, X } from 'lucide-react';
 import { unparse } from 'papaparse';
+import { useAppContext } from 'providers/App/App';
 import { ReactNode, useCallback, useMemo, useState } from 'react';
 import { UseQueryResult } from 'react-query';
-import { useSelector } from 'react-redux';
-import { AppState } from 'store/reducers';
 import { ErrorResponse, SuccessResponse } from 'types/api';
 import { Widgets } from 'types/api/dashboard/getAll';
 import { MetricRangePayloadProps } from 'types/api/metrics/getQueryRange';
-import AppReducer from 'types/reducer/app';
 
 import { errorTooltipPosition, WARNING_MESSAGE } from './config';
 import { MENUITEM_KEYS_VS_LABELS, MenuItemKeys } from './contants';
@@ -72,16 +71,18 @@ function WidgetHeader({
 	tableProcessedDataRef,
 	setSearchTerm,
 }: IWidgetHeaderProps): JSX.Element | null {
+	const urlQuery = useUrlQuery();
 	const onEditHandler = useCallback((): void => {
 		const widgetId = widget.id;
-		history.push(
-			`${window.location.pathname}/new?widgetId=${widgetId}&graphType=${
-				widget.panelTypes
-			}&${QueryParams.compositeQuery}=${encodeURIComponent(
-				JSON.stringify(widget.query),
-			)}`,
+		urlQuery.set(QueryParams.widgetId, widgetId);
+		urlQuery.set(QueryParams.graphType, widget.panelTypes);
+		urlQuery.set(
+			QueryParams.compositeQuery,
+			encodeURIComponent(JSON.stringify(widget.query)),
 		);
-	}, [widget.id, widget.panelTypes, widget.query]);
+		const generatedUrl = `${window.location.pathname}/new?${urlQuery}`;
+		history.push(generatedUrl);
+	}, [urlQuery, widget.id, widget.panelTypes, widget.query]);
 
 	const onCreateAlertsHandler = useCreateAlerts(widget, 'dashboardView');
 
@@ -127,11 +128,11 @@ function WidgetHeader({
 		},
 		[keyMethodMapping],
 	);
-	const { role } = useSelector<AppState, AppReducer>((state) => state.app);
+	const { user } = useAppContext();
 
 	const [deleteWidget, editWidget] = useComponentPermission(
 		['delete_widget', 'edit_widget'],
-		role,
+		user.role,
 	);
 
 	const actions = useMemo(

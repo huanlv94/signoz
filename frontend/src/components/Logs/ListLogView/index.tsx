@@ -8,13 +8,13 @@ import LogDetail from 'components/LogDetail';
 import { VIEW_TYPES } from 'components/LogDetail/constants';
 import { unescapeString } from 'container/LogDetailedView/utils';
 import { FontSize } from 'container/OptionsMenu/types';
-import dayjs from 'dayjs';
 import dompurify from 'dompurify';
 import { useActiveLog } from 'hooks/logs/useActiveLog';
 import { useCopyLogLink } from 'hooks/logs/useCopyLogLink';
 import { useIsDarkMode } from 'hooks/useDarkMode';
 // utils
 import { FlatLogData } from 'lib/logs/flatLogData';
+import { useTimezone } from 'providers/Timezone';
 import { useCallback, useMemo, useState } from 'react';
 // interfaces
 import { IField } from 'types/api/logs/fields';
@@ -174,12 +174,20 @@ function ListLogView({
 		[selectedFields],
 	);
 
+	const { formatTimezoneAdjustedTimestamp } = useTimezone();
+
 	const timestampValue = useMemo(
 		() =>
 			typeof flattenLogData.timestamp === 'string'
-				? dayjs(flattenLogData.timestamp).format('YYYY-MM-DD HH:mm:ss.SSS')
-				: dayjs(flattenLogData.timestamp / 1e6).format('YYYY-MM-DD HH:mm:ss.SSS'),
-		[flattenLogData.timestamp],
+				? formatTimezoneAdjustedTimestamp(
+						flattenLogData.timestamp,
+						'YYYY-MM-DD HH:mm:ss.SSS',
+				  )
+				: formatTimezoneAdjustedTimestamp(
+						flattenLogData.timestamp / 1e6,
+						'YYYY-MM-DD HH:mm:ss.SSS',
+				  ),
+		[flattenLogData.timestamp, formatTimezoneAdjustedTimestamp],
 	);
 
 	const logType = getLogIndicatorType(logData);
@@ -195,21 +203,20 @@ function ListLogView({
 	return (
 		<>
 			<Container
-				$isActiveLog={isHighlighted}
+				$isActiveLog={
+					isHighlighted ||
+					activeLog?.id === logData.id ||
+					activeContextLog?.id === logData.id
+				}
 				$isDarkMode={isDarkMode}
+				$logType={logType}
 				onMouseEnter={handleMouseEnter}
 				onMouseLeave={handleMouseLeave}
 				onClick={handleDetailedView}
 				fontSize={fontSize}
 			>
 				<div className="log-line">
-					<LogStateIndicator
-						type={logType}
-						isActive={
-							activeLog?.id === logData.id || activeContextLog?.id === logData.id
-						}
-						fontSize={fontSize}
-					/>
+					<LogStateIndicator type={logType} fontSize={fontSize} />
 					<div>
 						<LogContainer fontSize={fontSize}>
 							<LogGeneralField

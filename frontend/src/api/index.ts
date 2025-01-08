@@ -7,7 +7,6 @@ import afterLogin from 'AppRoutes/utils';
 import axios, { AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { ENVIRONMENT } from 'constants/env';
 import { LOCALSTORAGE } from 'constants/localStorage';
-import store from 'store';
 
 import apiV1, {
 	apiAlertManager,
@@ -15,6 +14,7 @@ import apiV1, {
 	apiV3,
 	apiV4,
 	gatewayApiV1,
+	gatewayApiV2,
 } from './apiV1';
 import { Logout } from './utils';
 
@@ -25,10 +25,7 @@ const interceptorsResponse = (
 const interceptorsRequestResponse = (
 	value: InternalAxiosRequestConfig,
 ): InternalAxiosRequestConfig => {
-	const token =
-		store.getState().app.user?.accessJwt ||
-		getLocalStorageApi(LOCALSTORAGE.AUTH_TOKEN) ||
-		'';
+	const token = getLocalStorageApi(LOCALSTORAGE.AUTH_TOKEN) || '';
 
 	if (value && value.headers) {
 		value.headers.Authorization = token ? `Bearer ${token}` : '';
@@ -46,41 +43,36 @@ const interceptorRejected = async (
 			// reject the refresh token error
 			if (response.status === 401 && response.config.url !== '/login') {
 				const response = await loginApi({
-					refreshToken: store.getState().app.user?.refreshJwt,
+					refreshToken: getLocalStorageApi(LOCALSTORAGE.REFRESH_AUTH_TOKEN) || '',
 				});
 
 				if (response.statusCode === 200) {
-					const user = await afterLogin(
+					afterLogin(
 						response.payload.userId,
 						response.payload.accessJwt,
 						response.payload.refreshJwt,
+						true,
 					);
 
-					if (user) {
-						const reResponse = await axios(
-							`${value.config.baseURL}${value.config.url?.substring(1)}`,
-							{
-								method: value.config.method,
-								headers: {
-									...value.config.headers,
-									Authorization: `Bearer ${response.payload.accessJwt}`,
-								},
-								data: {
-									...JSON.parse(value.config.data || '{}'),
-								},
+					const reResponse = await axios(
+						`${value.config.baseURL}${value.config.url?.substring(1)}`,
+						{
+							method: value.config.method,
+							headers: {
+								...value.config.headers,
+								Authorization: `Bearer ${response.payload.accessJwt}`,
 							},
-						);
+							data: {
+								...JSON.parse(value.config.data || '{}'),
+							},
+						},
+					);
 
-						if (reResponse.status === 200) {
-							return await Promise.resolve(reResponse);
-						}
-						Logout();
-
-						return await Promise.reject(reResponse);
+					if (reResponse.status === 200) {
+						return await Promise.resolve(reResponse);
 					}
 					Logout();
-
-					return await Promise.reject(value);
+					return await Promise.reject(reResponse);
 				}
 				Logout();
 			}
@@ -167,6 +159,19 @@ GatewayApiV1Instance.interceptors.response.use(
 );
 
 GatewayApiV1Instance.interceptors.request.use(interceptorsRequestResponse);
+//
+
+// gateway Api V2
+export const GatewayApiV2Instance = axios.create({
+	baseURL: `${ENVIRONMENT.baseURL}${gatewayApiV2}`,
+});
+
+GatewayApiV2Instance.interceptors.response.use(
+	interceptorsResponse,
+	interceptorRejected,
+);
+
+GatewayApiV2Instance.interceptors.request.use(interceptorsRequestResponse);
 //
 
 AxiosAlertManagerInstance.interceptors.response.use(

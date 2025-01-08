@@ -66,6 +66,10 @@ export const Onboarding = Loadable(
 	() => import(/* webpackChunkName: "Onboarding" */ 'pages/OnboardingPage'),
 );
 
+export const OrgOnboarding = Loadable(
+	() => import(/* webpackChunkName: "OrgOnboarding" */ 'pages/OrgOnboarding'),
+);
+
 export const DashboardPage = Loadable(
 	() =>
 		import(/* webpackChunkName: "DashboardPage" */ 'pages/DashboardsListPage'),
@@ -141,6 +145,11 @@ export const MySettings = Loadable(
 	() => import(/* webpackChunkName: "All MySettings" */ 'pages/MySettings'),
 );
 
+export const CustomDomainSettings = Loadable(
+	() =>
+		import(/* webpackChunkName: "Custom Domain Settings" */ 'pages/Settings'),
+);
+
 export const Logs = Loadable(
 	() => import(/* webpackChunkName: "Logs" */ 'pages/LogsModulePage'),
 );
@@ -176,7 +185,7 @@ export const PasswordReset = Loadable(
 export const SomethingWentWrong = Loadable(
 	() =>
 		import(
-			/* webpackChunkName: "SomethingWentWrong" */ 'pages/SomethingWentWrong'
+			/* webpackChunkName: "ErrorBoundaryFallback" */ 'pages/ErrorBoundaryFallback/ErrorBoundaryFallback'
 		),
 );
 
@@ -202,6 +211,13 @@ export const WorkspaceBlocked = Loadable(
 		import(/* webpackChunkName: "WorkspaceLocked" */ 'pages/WorkspaceLocked'),
 );
 
+export const WorkspaceSuspended = Loadable(
+	() =>
+		import(
+			/* webpackChunkName: "WorkspaceSuspended" */ 'pages/WorkspaceSuspended/WorkspaceSuspended'
+		),
+);
+
 export const ShortcutsPage = Loadable(
 	() => import(/* webpackChunkName: "ShortcutsPage" */ 'pages/Shortcuts'),
 );
@@ -222,5 +238,12 @@ export const MQDetailPage = Loadable(
 	() =>
 		import(
 			/* webpackChunkName: "MQDetailPage" */ 'pages/MessagingQueues/MQDetailPage'
+		),
+);
+
+export const InfrastructureMonitoring = Loadable(
+	() =>
+		import(
+			/* webpackChunkName: "InfrastructureMonitoring" */ 'pages/InfrastructureMonitoring'
 		),
 );

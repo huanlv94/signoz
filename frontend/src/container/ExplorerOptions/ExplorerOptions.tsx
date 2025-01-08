@@ -45,8 +45,8 @@ import {
 	PanelBottomClose,
 	Plus,
 	X,
-	XCircle,
 } from 'lucide-react';
+import { useAppContext } from 'providers/App/App';
 import {
 	CSSProperties,
 	Dispatch,
@@ -57,15 +57,12 @@ import {
 	useRef,
 	useState,
 } from 'react';
-import { useSelector } from 'react-redux';
 import { useHistory } from 'react-router-dom';
-import { AppState } from 'store/reducers';
 import { Dashboard } from 'types/api/dashboard/getAll';
 import { BaseAutocompleteData } from 'types/api/queryBuilder/queryAutocompleteResponse';
 import { Query } from 'types/api/queryBuilder/queryBuilderData';
 import { ViewProps } from 'types/api/saveViews/types';
 import { DataSource, StringOperators } from 'types/common/queryBuilder';
-import AppReducer from 'types/reducer/app';
 import { USER_ROLES } from 'types/roles';
 
 import { PreservedViewsTypes } from './constants';
@@ -115,6 +112,7 @@ function ExplorerOptions({
 		panelType,
 		isStagedQueryUpdated,
 		redirectWithQueryBuilderData,
+		isDefaultQuery,
 	} = useQueryBuilder();
 
 	const handleSaveViewModalToggle = (): void => {
@@ -134,7 +132,7 @@ function ExplorerOptions({
 		setIsSaveModalOpen(false);
 	};
 
-	const { role } = useSelector<AppState, AppReducer>((state) => state.app);
+	const { user } = useAppContext();
 
 	const handleConditionalQueryModification = useCallback((): string => {
 		if (
@@ -473,7 +471,7 @@ function ExplorerOptions({
 		}
 	};
 
-	const isEditDeleteSupported = allowedRoles.includes(role as string);
+	const isEditDeleteSupported = allowedRoles.includes(user.role as string);
 
 	const [
 		isRecentlyUsedSavedViewSelected,
@@ -481,6 +479,11 @@ function ExplorerOptions({
 	] = useState(false);
 
 	useEffect(() => {
+		// If the query is not the default query, don't set the recently used saved view
+		if (!isDefaultQuery({ currentQuery, sourcePage: sourcepage })) {
+			return;
+		}
+
 		const parsedPreservedView = JSON.parse(
 			localStorage.getItem(PRESERVED_VIEW_LOCAL_STORAGE_KEY) || '{}',
 		);
@@ -502,12 +505,18 @@ function ExplorerOptions({
 			setIsRecentlyUsedSavedViewSelected(false);
 		}
 
-		return (): void => clearTimeout(timeoutId);
+		// eslint-disable-next-line consistent-return
+		return (): void => {
+			clearTimeout(timeoutId);
+		};
 	}, [
 		PRESERVED_VIEW_LOCAL_STORAGE_KEY,
 		PRESERVED_VIEW_TYPE,
+		currentQuery,
+		isDefaultQuery,
 		isRecentlyUsedSavedViewSelected,
 		onMenuItemSelectHandler,
+		sourcepage,
 		viewKey,
 		viewName,
 		viewsData?.data?.data,
@@ -515,7 +524,11 @@ function ExplorerOptions({
 
 	return (
 		<div className="explorer-options-container">
-			{isQueryUpdated && !isExplorerOptionHidden && (
+			{
+				// if a viewName is selected and the explorer options are not hidden then
+				// always show the clear option
+			}
+			{!isExplorerOptionHidden && viewName && (
 				<div
 					className={cx(
 						isEditDeleteSupported ? '' : 'hide-update',
@@ -529,18 +542,25 @@ function ExplorerOptions({
 							icon={<X size={14} />}
 						/>
 					</Tooltip>
-					<Divider
-						type="vertical"
-						className={isEditDeleteSupported ? '' : 'hidden'}
-					/>
-					<Tooltip title="Update this view" placement="top">
-						<Button
-							className={cx('action-icon', isEditDeleteSupported ? ' ' : 'hidden')}
-							disabled={isViewUpdating}
-							onClick={onUpdateQueryHandler}
-							icon={<Disc3 size={14} />}
-						/>
-					</Tooltip>
+					{
+						// only show the update view option when the query is updated
+					}
+					{isQueryUpdated && (
+						<>
+							<Divider
+								type="vertical"
+								className={isEditDeleteSupported ? '' : 'hidden'}
+							/>
+							<Tooltip title="Update this view" placement="top">
+								<Button
+									className={cx('action-icon', isEditDeleteSupported ? ' ' : 'hidden')}
+									disabled={isViewUpdating}
+									onClick={onUpdateQueryHandler}
+									icon={<Disc3 size={14} />}
+								/>
+							</Tooltip>
+						</>
+					)}
 				</div>
 			)}
 			{!isExplorerOptionHidden && (
@@ -564,10 +584,7 @@ function ExplorerOptions({
 							}}
 							dropdownStyle={dropdownStyle}
 							className="views-dropdown"
-							allowClear={{
-								clearIcon: <XCircle size={16} style={{ marginTop: '-3px' }} />,
-							}}
-							onClear={handleClearSelect}
+							allowClear={false}
 							ref={ref}
 						>
 							{viewsData?.data?.data?.map((view) => {
@@ -662,8 +679,8 @@ function ExplorerOptions({
 					</div>
 				</div>
 			)}
-
 			<ExplorerOptionsHideArea
+				viewName={viewName}
 				isExplorerOptionHidden={isExplorerOptionHidden}
 				setIsExplorerOptionHidden={setIsExplorerOptionHidden}
 				sourcepage={sourcepage}
@@ -672,7 +689,6 @@ function ExplorerOptions({
 				onUpdateQueryHandler={onUpdateQueryHandler}
 				isEditDeleteSupported={isEditDeleteSupported}
 			/>
-
 			<Modal
 				className="save-view-modal"
 				title={<span className="title">Save this view</span>}
@@ -705,7 +721,6 @@ function ExplorerOptions({
 					/>
 				</div>
 			</Modal>
-
 			<Modal
 				footer={null}
 				onOk={onCancel(false)}

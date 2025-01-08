@@ -31,8 +31,9 @@ import (
 	"go.signoz.io/signoz/ee/query-service/rules"
 	baseauth "go.signoz.io/signoz/pkg/query-service/auth"
 	"go.signoz.io/signoz/pkg/query-service/migrate"
-	"go.signoz.io/signoz/pkg/query-service/model"
 	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
+	"go.signoz.io/signoz/pkg/signoz"
+	"go.signoz.io/signoz/pkg/web"
 
 	licensepkg "go.signoz.io/signoz/ee/query-service/license"
 	"go.signoz.io/signoz/ee/query-service/usage"
@@ -62,6 +63,7 @@ import (
 const AppDbEngine = "sqlite"
 
 type ServerOptions struct {
+	SigNoz            *signoz.SigNoz
 	PromConfigPath    string
 	SkipTopLvlOpsPath string
 	HTTPHostPort      string
@@ -78,6 +80,8 @@ type ServerOptions struct {
 	Cluster           string
 	GatewayUrl        string
 	UseLogsNewSchema  bool
+	UseTraceNewSchema bool
+	SkipWebFrontend   bool
 }
 
 // Server runs HTTP api service
@@ -156,6 +160,7 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 			serverOptions.DialTimeout,
 			serverOptions.Cluster,
 			serverOptions.UseLogsNewSchema,
+			serverOptions.UseTraceNewSchema,
 		)
 		go qb.Start(readerReady)
 		reader = qb
@@ -189,6 +194,7 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 		serverOptions.DisableRules,
 		lm,
 		serverOptions.UseLogsNewSchema,
+		serverOptions.UseTraceNewSchema,
 	)
 
 	if err != nil {
@@ -270,6 +276,7 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 		FluxInterval:                  fluxInterval,
 		Gateway:                       gatewayProxy,
 		UseLogsNewSchema:              serverOptions.UseLogsNewSchema,
+		UseTraceNewSchema:             serverOptions.UseTraceNewSchema,
 	}
 
 	apiHandler, err := api.NewAPIHandler(apiOpts)
@@ -286,7 +293,7 @@ func NewServer(serverOptions *ServerOptions) (*Server, error) {
 		usageManager:       usageManager,
 	}
 
-	httpServer, err := s.createPublicServer(apiHandler)
+	httpServer, err := s.createPublicServer(apiHandler, serverOptions.SigNoz.Web)
 
 	if err != nil {
 		return nil, err
@@ -312,10 +319,10 @@ func (s *Server) createPrivateServer(apiHandler *api.APIHandler) (*http.Server, 
 
 	r := baseapp.NewRouter()
 
-	r.Use(baseapp.LogCommentEnricher)
 	r.Use(setTimeoutMiddleware)
 	r.Use(s.analyticsMiddleware)
 	r.Use(loggingMiddlewarePrivate)
+	r.Use(baseapp.LogCommentEnricher)
 
 	apiHandler.RegisterPrivateRoutes(r)
 
@@ -335,7 +342,7 @@ func (s *Server) createPrivateServer(apiHandler *api.APIHandler) (*http.Server, 
 	}, nil
 }
 
-func (s *Server) createPublicServer(apiHandler *api.APIHandler) (*http.Server, error) {
+func (s *Server) createPublicServer(apiHandler *api.APIHandler, web *web.Web) (*http.Server, error) {
 
 	r := baseapp.NewRouter()
 
@@ -348,22 +355,23 @@ func (s *Server) createPublicServer(apiHandler *api.APIHandler) (*http.Server, e
 		}
 
 		if user.User.OrgId == "" {
-			return nil, model.UnauthorizedError(errors.New("orgId is missing in the claims"))
+			return nil, basemodel.UnauthorizedError(errors.New("orgId is missing in the claims"))
 		}
 
 		return user, nil
 	}
 	am := baseapp.NewAuthMiddleware(getUserFromRequest)
 
-	r.Use(baseapp.LogCommentEnricher)
 	r.Use(setTimeoutMiddleware)
 	r.Use(s.analyticsMiddleware)
 	r.Use(loggingMiddleware)
+	r.Use(baseapp.LogCommentEnricher)
 
 	apiHandler.RegisterRoutes(r, am)
 	apiHandler.RegisterLogsRoutes(r, am)
 	apiHandler.RegisterIntegrationRoutes(r, am)
 	apiHandler.RegisterQueryRangeV3Routes(r, am)
+	apiHandler.RegisterInfraMetricsRoutes(r, am)
 	apiHandler.RegisterQueryRangeV4Routes(r, am)
 	apiHandler.RegisterWebSocketPaths(r, am)
 	apiHandler.RegisterMessagingQueuesRoutes(r, am)
@@ -377,6 +385,13 @@ func (s *Server) createPublicServer(apiHandler *api.APIHandler) (*http.Server, e
 	handler := c.Handler(r)
 
 	handler = handlers.CompressHandler(handler)
+
+	if !s.serverOptions.SkipWebFrontend {
+		err := web.AddToRouter(r)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	return &http.Server{
 		Handler: handler,
@@ -735,7 +750,8 @@ func makeRulesManager(
 	cache cache.Cache,
 	disableRules bool,
 	fm baseint.FeatureLookup,
-	useLogsNewSchema bool) (*baserules.Manager, error) {
+	useLogsNewSchema bool,
+	useTraceNewSchema bool) (*baserules.Manager, error) {
 
 	// create engine
 	pqle, err := pqle.FromConfigPath(promConfigPath)
@@ -764,8 +780,10 @@ func makeRulesManager(
 		Cache:        cache,
 		EvalDelay:    baseconst.GetEvalDelay(),
 
-		PrepareTaskFunc:  rules.PrepareTaskFunc,
-		UseLogsNewSchema: useLogsNewSchema,
+		PrepareTaskFunc:     rules.PrepareTaskFunc,
+		UseLogsNewSchema:    useLogsNewSchema,
+		UseTraceNewSchema:   useTraceNewSchema,
+		PrepareTestRuleFunc: rules.TestNotification,
 	}
 
 	// create Manager

@@ -9,7 +9,6 @@ import {
 	QUERY_BUILDER_SEARCH_VALUES,
 } from 'constants/queryBuilder';
 import { DEBOUNCE_DELAY } from 'constants/queryBuilderFilterConfig';
-import ROUTES from 'constants/routes';
 import { LogsExplorerShortcuts } from 'constants/shortcuts/logsExplorerShortcuts';
 import { useKeyboardHotkeys } from 'hooks/hotkeys/useKeyboardHotkeys';
 import { WhereClauseConfig } from 'hooks/queryBuilder/useAutoComplete';
@@ -40,7 +39,6 @@ import {
 	useRef,
 	useState,
 } from 'react';
-import { useLocation } from 'react-router-dom';
 import {
 	BaseAutocompleteData,
 	DataTypes,
@@ -147,9 +145,8 @@ function QueryBuilderSearchV2(
 
 	const [showAllFilters, setShowAllFilters] = useState<boolean>(false);
 
-	const { pathname } = useLocation();
-	const isLogsExplorerPage = useMemo(() => pathname === ROUTES.LOGS_EXPLORER, [
-		pathname,
+	const isLogsDataSource = useMemo(() => query.dataSource === DataSource.LOGS, [
+		query.dataSource,
 	]);
 
 	const memoizedSearchParams = useMemo(
@@ -235,7 +232,7 @@ function QueryBuilderSearchV2(
 		},
 		{
 			queryKey: [searchParams],
-			enabled: isQueryEnabled && !isLogsExplorerPage,
+			enabled: isQueryEnabled && !isLogsDataSource,
 		},
 	);
 
@@ -250,7 +247,7 @@ function QueryBuilderSearchV2(
 		},
 		{
 			queryKey: [suggestionsParams],
-			enabled: isQueryEnabled && isLogsExplorerPage,
+			enabled: isQueryEnabled && isLogsDataSource,
 		},
 	);
 
@@ -319,7 +316,7 @@ function QueryBuilderSearchV2(
 						value: '',
 					}));
 					setCurrentState(DropdownState.OPERATOR);
-					setSearchValue((parsedValue as BaseAutocompleteData)?.key);
+					setSearchValue(`${(parsedValue as BaseAutocompleteData)?.key} `);
 				}
 			} else if (currentState === DropdownState.OPERATOR) {
 				if (isEmpty(value) && currentFilterItem?.key?.key) {
@@ -360,7 +357,7 @@ function QueryBuilderSearchV2(
 						value: '',
 					}));
 					setCurrentState(DropdownState.ATTRIBUTE_VALUE);
-					setSearchValue(`${currentFilterItem?.key?.key} ${value}`);
+					setSearchValue(`${currentFilterItem?.key?.key} ${value} `);
 				}
 			} else if (currentState === DropdownState.ATTRIBUTE_VALUE) {
 				const operatorType =
@@ -512,11 +509,6 @@ function QueryBuilderSearchV2(
 
 	// this useEffect takes care of tokenisation based on the search state
 	useEffect(() => {
-		// if we are still fetching the suggestions then return as we won't know the type / data-type etc for the attribute key
-		if (isFetchingSuggestions) {
-			return;
-		}
-
 		// if there is no search value reset to the default state
 		if (!searchValue) {
 			setCurrentFilterItem(undefined);
@@ -656,7 +648,7 @@ function QueryBuilderSearchV2(
 	useEffect(() => {
 		if (currentState === DropdownState.ATTRIBUTE_KEY) {
 			const { tagKey } = getTagToken(searchValue);
-			if (isLogsExplorerPage) {
+			if (isLogsDataSource) {
 				// add the user typed option in the dropdown to select that and move ahead irrespective of the matches and all
 				setDropdownOptions([
 					...(!isEmpty(tagKey) &&
@@ -761,11 +753,12 @@ function QueryBuilderSearchV2(
 		currentFilterItem?.key?.dataType,
 		currentState,
 		data?.payload?.attributeKeys,
-		isLogsExplorerPage,
+		isLogsDataSource,
 		searchValue,
 		suggestionsData?.payload?.attributes,
 	]);
 
+	// keep the query in sync with the selected tags in logs explorer page
 	useEffect(() => {
 		const filterTags: IBuilderQuery['filters'] = {
 			op: 'AND',
@@ -788,16 +781,14 @@ function QueryBuilderSearchV2(
 
 		if (!isEqual(query.filters, filterTags)) {
 			onChange(filterTags);
-			setTags(
-				filterTags.items.map((tag) => ({
-					...tag,
-					op: getOperatorFromValue(tag.op),
-				})) as ITag[],
-			);
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [tags]);
 
+	// keep the use effects pure!
+	// if the tags lacks the ID then the above use effect will add it to query
+	// and then the below use effect will take care of adding it to the tags.
+	// keep the tags in sycn with current query.
 	useEffect(() => {
 		// convert the query and tags to same format before comparison
 		if (!isEqual(getInitTags(query), tags)) {
@@ -903,12 +894,14 @@ function QueryBuilderSearchV2(
 			<Select
 				ref={selectRef}
 				getPopupContainer={popupContainer}
+				key={queryTags.join('.')}
 				virtual={false}
 				showSearch
 				tagRender={onTagRender}
 				transitionName=""
 				choiceTransitionName=""
 				filterOption={false}
+				autoFocus={isOpen}
 				open={isOpen}
 				suffixIcon={
 					// eslint-disable-next-line no-nested-ternary

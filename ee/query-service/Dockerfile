@@ -1,5 +1,5 @@
 # use a minimal alpine image
-FROM alpine:3.18.6
+FROM alpine:3.20.3
 
 # Add Maintainer Info
 LABEL maintainer="signoz"
@@ -22,6 +22,9 @@ COPY pkg/query-service/templates /root/templates
 
 # Make query-service executable for non-root users
 RUN chmod 755 /root /root/query-service
+
+# Copy frontend
+COPY frontend/build/ /etc/signoz/web/
 
 # run the binary
 ENTRYPOINT ["./query-service"]

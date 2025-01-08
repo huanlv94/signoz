@@ -4,7 +4,6 @@ import { Color } from '@signozhq/design-tokens';
 import { Button, Tabs, Typography } from 'antd';
 import logEvent from 'api/common/logEvent';
 import PromQLIcon from 'assets/Dashboard/PromQl';
-import LaunchChatSupport from 'components/LaunchChatSupport/LaunchChatSupport';
 import TextToolTip from 'components/TextToolTip';
 import { PANEL_TYPES } from 'constants/queryBuilder';
 import { QBShortcuts } from 'constants/shortcuts/QBShortcuts';
@@ -29,14 +28,11 @@ import {
 } from 'providers/Dashboard/util';
 import { useCallback, useEffect, useMemo } from 'react';
 import { UseQueryResult } from 'react-query';
-import { useSelector } from 'react-redux';
-import { AppState } from 'store/reducers';
 import { SuccessResponse } from 'types/api';
 import { Widgets } from 'types/api/dashboard/getAll';
 import { MetricRangePayloadProps } from 'types/api/metrics/getQueryRange';
 import { Query } from 'types/api/queryBuilder/queryBuilderData';
 import { EQueryType } from 'types/common/dashboard';
-import AppReducer from 'types/reducer/app';
 
 import ClickHouseQueryContainer from './QueryBuilder/clickHouse';
 import PromQLQueryContainer from './QueryBuilder/promQL';
@@ -48,10 +44,6 @@ function QuerySection({
 	const { currentQuery, redirectWithQueryBuilderData } = useQueryBuilder();
 	const urlQuery = useUrlQuery();
 	const { registerShortcut, deregisterShortcut } = useKeyboardHotkeys();
-
-	const { featureResponse } = useSelector<AppState, AppReducer>(
-		(state) => state.app,
-	);
 
 	const { selectedDashboard, setSelectedDashboard } = useDashboard();
 
@@ -118,14 +110,12 @@ function QuerySection({
 	const handleQueryCategoryChange = useCallback(
 		(qCategory: string): void => {
 			const currentQueryType = qCategory;
-			featureResponse.refetch().then(() => {
-				handleStageQuery({
-					...currentQuery,
-					queryType: currentQueryType as EQueryType,
-				});
+			handleStageQuery({
+				...currentQuery,
+				queryType: currentQueryType as EQueryType,
 			});
 		},
-		[currentQuery, featureResponse, handleStageQuery],
+		[currentQuery, handleStageQuery],
 	);
 
 	const handleRunQuery = (): void => {
@@ -235,21 +225,6 @@ function QuerySection({
 				onChange={handleQueryCategoryChange}
 				tabBarExtraContent={
 					<span style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-						<LaunchChatSupport
-							attributes={{
-								uuid: selectedDashboard?.uuid,
-								title: selectedDashboard?.data.title,
-								screen: 'Dashboard widget',
-								panelType: selectedGraph,
-								widgetId: query.id,
-								queryType: currentQuery.queryType,
-							}}
-							eventName="Dashboard: Facing Issues in dashboard"
-							buttonText="Need help with this chart?"
-							// message={chartHelpMessage(selectedDashboard, graphType)}
-							onHoverText="Click here to get help with this dashboard widget"
-							intercomMessageDisabled
-						/>
 						<TextToolTip
 							text="This will temporarily save the current query and graph state. This will persist across tab change"
 							url="https://signoz.io/docs/userguide/query-builder?utm_source=product&utm_medium=query-builder"

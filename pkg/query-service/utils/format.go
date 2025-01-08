@@ -41,6 +41,8 @@ func ValidateAndCastValue(v interface{}, dataType v3.AttributeKeyDataType) (inte
 				}
 			}
 			return x, nil
+		case []string:
+			return x, nil
 		default:
 			return nil, fmt.Errorf("invalid data type, expected string, got %v", reflect.TypeOf(v))
 		}
@@ -156,9 +158,18 @@ func QuoteEscapedString(str string) string {
 	return str
 }
 
-func QuoteEscapedStringForContains(str string) string {
+func QuoteEscapedStringForContains(str string, isIndex bool) string {
 	// https: //clickhouse.com/docs/en/sql-reference/functions/string-search-functions#like
 	str = QuoteEscapedString(str)
+
+	// we are adding this because if a string contains quote `"` it will be stored as \" in clickhouse
+	// to query that using like our query should be \\\\"
+	if isIndex {
+		// isIndex is true means that the extra slash is present
+		// [\"a\",\"b\",\"sdf\"]
+		str = strings.ReplaceAll(str, `"`, `\\\\"`)
+	}
+
 	str = strings.ReplaceAll(str, `%`, `\%`)
 	str = strings.ReplaceAll(str, `_`, `\_`)
 	return str
@@ -217,6 +228,22 @@ func ClickHouseFormattedValue(v interface{}) string {
 		zap.L().Error("invalid type for formatted value", zap.Any("type", reflect.TypeOf(x)))
 		return ""
 	}
+}
+
+func AddBackTickToFormatTag(str string) string {
+	if strings.Contains(str, ".") {
+		return "`" + str + "`"
+	} else {
+		return str
+	}
+}
+
+func AddBackTickToFormatTags(inputs ...string) []string {
+	result := make([]string, len(inputs))
+	for i, str := range inputs {
+		result[i] = AddBackTickToFormatTag(str)
+	}
+	return result
 }
 
 func getPointerValue(v interface{}) interface{} {

@@ -7,14 +7,17 @@ import { REACT_QUERY_KEY } from 'constants/reactQueryKeys';
 import EmptyLogsSearch from 'container/EmptyLogsSearch/EmptyLogsSearch';
 import NoLogs from 'container/NoLogs/NoLogs';
 import { useOptionsMenu } from 'container/OptionsMenu';
+import { CustomTimeType } from 'container/TopNav/DateTimeSelectionV2/config';
 import TraceExplorerControls from 'container/TracesExplorer/Controls';
 import { useGetQueryRange } from 'hooks/queryBuilder/useGetQueryRange';
 import { useQueryBuilder } from 'hooks/queryBuilder/useQueryBuilder';
 import { Pagination } from 'hooks/queryPagination';
+import { getDefaultPaginationConfig } from 'hooks/queryPagination/utils';
 import useDragColumns from 'hooks/useDragColumns';
 import { getDraggedColumns } from 'hooks/useDragColumns/utils';
 import useUrlQueryData from 'hooks/useUrlQueryData';
 import { RowData } from 'lib/query/createTableColumnsFromQuery';
+import { useTimezone } from 'providers/Timezone';
 import { memo, useCallback, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import { AppState } from 'store/reducers';
@@ -31,12 +34,19 @@ interface ListViewProps {
 }
 
 function ListView({ isFilterApplied }: ListViewProps): JSX.Element {
-	const { stagedQuery, panelType } = useQueryBuilder();
+	const {
+		stagedQuery,
+		panelType: panelTypeFromQueryBuilder,
+	} = useQueryBuilder();
 
-	const { selectedTime: globalSelectedTime, maxTime, minTime } = useSelector<
-		AppState,
-		GlobalReducer
-	>((state) => state.globalTime);
+	const panelType = panelTypeFromQueryBuilder || PANEL_TYPES.LIST;
+
+	const {
+		selectedTime: globalSelectedTime,
+		maxTime,
+		minTime,
+		loading: timeRangeUpdateLoading,
+	} = useSelector<AppState, GlobalReducer>((state) => state.globalTime);
 
 	const { options, config } = useOptionsMenu({
 		storageKey: LOCALSTORAGE.TRACES_LIST_OPTIONS,
@@ -54,34 +64,51 @@ function ListView({ isFilterApplied }: ListViewProps): JSX.Element {
 	const { queryData: paginationQueryData } = useUrlQueryData<Pagination>(
 		QueryParams.pagination,
 	);
+	const paginationConfig =
+		paginationQueryData ?? getDefaultPaginationConfig(PER_PAGE_OPTIONS);
+
+	const queryKey = useMemo(
+		() => [
+			REACT_QUERY_KEY.GET_QUERY_RANGE,
+			globalSelectedTime,
+			maxTime,
+			minTime,
+			stagedQuery,
+			panelType,
+			paginationConfig,
+			options?.selectColumns,
+		],
+		[
+			stagedQuery,
+			panelType,
+			globalSelectedTime,
+			paginationConfig,
+			options?.selectColumns,
+			maxTime,
+			minTime,
+		],
+	);
 
 	const { data, isFetching, isLoading, isError } = useGetQueryRange(
 		{
 			query: stagedQuery || initialQueriesMap.traces,
-			graphType: panelType || PANEL_TYPES.LIST,
-			selectedTime: 'GLOBAL_TIME',
-			globalSelectedInterval: globalSelectedTime,
+			graphType: panelType,
+			selectedTime: 'GLOBAL_TIME' as const,
+			globalSelectedInterval: globalSelectedTime as CustomTimeType,
 			params: {
 				dataSource: 'traces',
 			},
 			tableParams: {
-				pagination: paginationQueryData,
+				pagination: paginationConfig,
 				selectColumns: options?.selectColumns,
 			},
 		},
 		DEFAULT_ENTITY_VERSION,
 		{
-			queryKey: [
-				REACT_QUERY_KEY.GET_QUERY_RANGE,
-				globalSelectedTime,
-				maxTime,
-				minTime,
-				stagedQuery,
-				panelType,
-				paginationQueryData,
-				options?.selectColumns,
-			],
+			queryKey,
 			enabled:
+				// don't make api call while the time range state in redux is loading
+				!timeRangeUpdateLoading &&
 				!!stagedQuery &&
 				panelType === PANEL_TYPES.LIST &&
 				!!options?.selectColumns?.length,
@@ -97,10 +124,15 @@ function ListView({ isFilterApplied }: ListViewProps): JSX.Element {
 		queryTableDataResult,
 	]);
 
+	const { formatTimezoneAdjustedTimestamp } = useTimezone();
+
 	const columns = useMemo(() => {
-		const updatedColumns = getListColumns(options?.selectColumns || []);
+		const updatedColumns = getListColumns(
+			options?.selectColumns || [],
+			formatTimezoneAdjustedTimestamp,
+		);
 		return getDraggedColumns(updatedColumns, draggedColumns);
-	}, [options?.selectColumns, draggedColumns]);
+	}, [options?.selectColumns, formatTimezoneAdjustedTimestamp, draggedColumns]);
 
 	const transformedQueryTableData = useMemo(
 		() => transformDataWithDate(queryTableData) || [],
@@ -148,7 +180,7 @@ function ListView({ isFilterApplied }: ListViewProps): JSX.Element {
 				<ResizeTable
 					tableLayout="fixed"
 					pagination={false}
-					scroll={{ x: true }}
+					scroll={{ x: 'max-content' }}
 					loading={isFetching}
 					style={tableStyles}
 					dataSource={transformedQueryTableData}

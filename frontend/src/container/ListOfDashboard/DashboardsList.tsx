@@ -25,10 +25,10 @@ import logEvent from 'api/common/logEvent';
 import createDashboard from 'api/dashboard/create';
 import { AxiosError } from 'axios';
 import cx from 'classnames';
-import LaunchChatSupport from 'components/LaunchChatSupport/LaunchChatSupport';
-import { dashboardListMessage } from 'components/LaunchChatSupport/util';
 import { ENTITY_VERSION_V4 } from 'constants/app';
 import ROUTES from 'constants/routes';
+import { sanitizeDashboardData } from 'container/NewDashboard/DashboardDescription';
+import { downloadObjectAsJson } from 'container/NewDashboard/DashboardDescription/utils';
 import { Base64Icons } from 'container/NewDashboard/DashboardSettings/General/utils';
 import dayjs from 'dayjs';
 import { useGetAllDashboard } from 'hooks/dashboard/useGetAllDashboard';
@@ -46,6 +46,7 @@ import {
 	EllipsisVertical,
 	Expand,
 	ExternalLink,
+	FileJson,
 	Github,
 	HdmiPort,
 	LayoutGrid,
@@ -58,7 +59,9 @@ import {
 // #TODO: lucide will be removing brand icons like Github in future, in that case we can use simple icons
 // see more: https://github.com/lucide-icons/lucide/issues/94
 import { handleContactSupport } from 'pages/Integrations/utils';
+import { useAppContext } from 'providers/App/App';
 import { useDashboard } from 'providers/Dashboard/Dashboard';
+import { useTimezone } from 'providers/Timezone';
 import {
 	ChangeEvent,
 	Key,
@@ -68,17 +71,21 @@ import {
 	useRef,
 	useState,
 } from 'react';
+import { Layout } from 'react-grid-layout';
 import { useTranslation } from 'react-i18next';
-import { useSelector } from 'react-redux';
 import { generatePath, Link } from 'react-router-dom';
 import { useCopyToClipboard } from 'react-use';
-import { AppState } from 'store/reducers';
-import { Dashboard } from 'types/api/dashboard/getAll';
-import AppReducer from 'types/reducer/app';
+import {
+	Dashboard,
+	IDashboardVariable,
+	WidgetRow,
+	Widgets,
+} from 'types/api/dashboard/getAll';
 import { isCloudUser } from 'utils/app';
 
 import DashboardTemplatesModal from './DashboardTemplates/DashboardTemplatesModal';
 import ImportJSON from './ImportJSON';
+import { RequestDashboardBtn } from './RequestDashboardBtn';
 import { DeleteButton } from './TableComponents/DeleteButton';
 import {
 	DashboardDynamicColumns,
@@ -96,7 +103,7 @@ function DashboardsList(): JSX.Element {
 		refetch: refetchDashboardList,
 	} = useGetAllDashboard();
 
-	const { role } = useSelector<AppState, AppReducer>((state) => state.app);
+	const { user } = useAppContext();
 
 	const {
 		listSortOrder: sortOrder,
@@ -108,7 +115,7 @@ function DashboardsList(): JSX.Element {
 	);
 	const [action, createNewDashboard] = useComponentPermission(
 		['action', 'create_new_dashboards'],
-		role,
+		user.role,
 	);
 
 	const [
@@ -261,6 +268,11 @@ function DashboardsList(): JSX.Element {
 			isLocked: !!e.isLocked || false,
 			lastUpdatedBy: e.updated_by,
 			image: e.data.image || Base64Icons[0],
+			variables: e.data.variables,
+			widgets: e.data.widgets,
+			layout: e.data.layout,
+			panelMap: e.data.panelMap,
+			version: e.data.version,
 			refetchDashboardList,
 		})) || [];
 
@@ -344,31 +356,13 @@ function DashboardsList(): JSX.Element {
 		}
 	}, [state.error, state.value, t, notifications]);
 
+	const { formatTimezoneAdjustedTimestamp } = useTimezone();
+
 	function getFormattedTime(dashboard: Dashboard, option: string): string {
-		const timeOptions: Intl.DateTimeFormatOptions = {
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit',
-			hour12: false,
-		};
-		const formattedTime = new Date(get(dashboard, option, '')).toLocaleTimeString(
-			'en-US',
-			timeOptions,
+		return formatTimezoneAdjustedTimestamp(
+			get(dashboard, option, ''),
+			'MMM D, YYYY ⎯ hh:mm:ss A (UTC Z)',
 		);
-
-		const dateOptions: Intl.DateTimeFormatOptions = {
-			month: 'short',
-			day: 'numeric',
-			year: 'numeric',
-		};
-
-		const formattedDate = new Date(get(dashboard, option, '')).toLocaleDateString(
-			'en-US',
-			dateOptions,
-		);
-
-		// Combine time and date
-		return `${formattedDate} ⎯ ${formattedTime}`;
 	}
 
 	const onLastUpdated = (time: string): string => {
@@ -411,34 +405,15 @@ function DashboardsList(): JSX.Element {
 			title: 'Dashboards',
 			key: 'dashboard',
 			render: (dashboard: Data, _, index): JSX.Element => {
-				const timeOptions: Intl.DateTimeFormatOptions = {
-					hour: '2-digit',
-					minute: '2-digit',
-					second: '2-digit',
-					hour12: false,
-				};
-				const formattedTime = new Date(dashboard.createdAt).toLocaleTimeString(
-					'en-US',
-					timeOptions,
+				const formattedDateAndTime = formatTimezoneAdjustedTimestamp(
+					dashboard.createdAt,
+					'MMM D, YYYY ⎯ hh:mm:ss A (UTC Z)',
 				);
-
-				const dateOptions: Intl.DateTimeFormatOptions = {
-					month: 'short',
-					day: 'numeric',
-					year: 'numeric',
-				};
-
-				const formattedDate = new Date(dashboard.createdAt).toLocaleDateString(
-					'en-US',
-					dateOptions,
-				);
-
-				// Combine time and date
-				const formattedDateAndTime = `${formattedDate} ⎯ ${formattedTime}`;
 
 				const getLink = (): string => `${ROUTES.ALL_DASHBOARD}/${dashboard.id}`;
 
 				const onClickHandler = (event: React.MouseEvent<HTMLElement>): void => {
+					event.stopPropagation();
 					if (event.metaKey || event.ctrlKey) {
 						window.open(getLink(), '_blank');
 					} else {
@@ -450,6 +425,15 @@ function DashboardsList(): JSX.Element {
 					});
 				};
 
+				const handleJsonExport = (event: React.MouseEvent<HTMLElement>): void => {
+					event.stopPropagation();
+					event.preventDefault();
+					downloadObjectAsJson(
+						sanitizeDashboardData({ ...dashboard, title: dashboard.name }),
+						dashboard.name,
+					);
+				};
+
 				return (
 					<div className="dashboard-list-item" onClick={onClickHandler}>
 						<div className="title-with-action">
@@ -459,7 +443,11 @@ function DashboardsList(): JSX.Element {
 									placement="left"
 									overlayClassName="title-toolip"
 								>
-									<Link to={getLink()} className="title-link">
+									<Link
+										to={getLink()}
+										className="title-link"
+										onClick={(e): void => e.stopPropagation()}
+									>
 										<img
 											src={dashboard?.image || Base64Icons[0]}
 											alt="dashboard-image"
@@ -519,6 +507,14 @@ function DashboardsList(): JSX.Element {
 												>
 													Copy Link
 												</Button>
+												<Button
+													type="text"
+													className="action-btn"
+													icon={<FileJson size={12} />}
+													onClick={handleJsonExport}
+												>
+													Export JSON
+												</Button>
 											</section>
 											<section className="section-2">
 												<DeleteButton
@@ -537,6 +533,7 @@ function DashboardsList(): JSX.Element {
 									<EllipsisVertical
 										className="dashboard-action-icon"
 										size={14}
+										data-testid="dashboard-action-icon"
 										onClick={(e): void => {
 											e.stopPropagation();
 											e.preventDefault();
@@ -693,17 +690,14 @@ function DashboardsList(): JSX.Element {
 						<Typography.Text className="subtitle">
 							Create and manage dashboards for your workspace.
 						</Typography.Text>
-						<LaunchChatSupport
-							attributes={{
-								screen: 'Dashboard list page',
-							}}
-							eventName="Dashboard: Facing Issues in dashboard"
-							message={dashboardListMessage}
-							buttonText="Need help with dashboards?"
-							onHoverText="Click here to get help with dashboards"
-							intercomMessageDisabled
-						/>
 					</Flex>
+					{isCloudUser() && (
+						<div className="integrations-container">
+							<div className="integrations-content">
+								<RequestDashboardBtn />
+							</div>
+						</div>
+					)}
 				</div>
 
 				{isDashboardListLoading ||
@@ -1104,6 +1098,11 @@ export interface Data {
 	isLocked: boolean;
 	id: string;
 	image?: string;
+	widgets?: Array<WidgetRow | Widgets>;
+	layout?: Layout[];
+	panelMap?: Record<string, { widgets: Layout[]; collapsed: boolean }>;
+	variables: Record<string, IDashboardVariable>;
+	version?: string;
 }
 
 export default DashboardsList;

@@ -10,6 +10,7 @@ import (
 	logsV4 "go.signoz.io/signoz/pkg/query-service/app/logs/v4"
 	metricsV3 "go.signoz.io/signoz/pkg/query-service/app/metrics/v3"
 	tracesV3 "go.signoz.io/signoz/pkg/query-service/app/traces/v3"
+	tracesV4 "go.signoz.io/signoz/pkg/query-service/app/traces/v4"
 	"go.signoz.io/signoz/pkg/query-service/common"
 	"go.signoz.io/signoz/pkg/query-service/constants"
 	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
@@ -45,7 +46,7 @@ func prepareLogsQuery(_ context.Context,
 			params.CompositeQuery.QueryType,
 			params.CompositeQuery.PanelType,
 			builderQuery,
-			v3.LogQBOptions{GraphLimitQtype: constants.FirstQueryGraphLimit, PreferRPM: preferRPM},
+			v3.QBOptions{GraphLimitQtype: constants.FirstQueryGraphLimit, PreferRPM: preferRPM},
 		)
 		if err != nil {
 			return query, err
@@ -56,7 +57,7 @@ func prepareLogsQuery(_ context.Context,
 			params.CompositeQuery.QueryType,
 			params.CompositeQuery.PanelType,
 			builderQuery,
-			v3.LogQBOptions{GraphLimitQtype: constants.SecondQueryGraphLimit, PreferRPM: preferRPM},
+			v3.QBOptions{GraphLimitQtype: constants.SecondQueryGraphLimit, PreferRPM: preferRPM},
 		)
 		if err != nil {
 			return query, err
@@ -71,7 +72,7 @@ func prepareLogsQuery(_ context.Context,
 		params.CompositeQuery.QueryType,
 		params.CompositeQuery.PanelType,
 		builderQuery,
-		v3.LogQBOptions{PreferRPM: preferRPM},
+		v3.QBOptions{PreferRPM: preferRPM},
 	)
 	if err != nil {
 		return query, err
@@ -158,40 +159,45 @@ func (q *querier) runBuilderQuery(
 
 	if builderQuery.DataSource == v3.DataSourceTraces {
 
+		tracesQueryBuilder := tracesV3.PrepareTracesQuery
+		if q.UseTraceNewSchema {
+			tracesQueryBuilder = tracesV4.PrepareTracesQuery
+		}
+
 		var query string
 		var err error
 		// for ts query with group by and limit form two queries
 		if params.CompositeQuery.PanelType == v3.PanelTypeGraph && builderQuery.Limit > 0 && len(builderQuery.GroupBy) > 0 {
-			limitQuery, err := tracesV3.PrepareTracesQuery(
+			limitQuery, err := tracesQueryBuilder(
 				start,
 				end,
 				params.CompositeQuery.PanelType,
 				builderQuery,
-				tracesV3.Options{GraphLimitQtype: constants.FirstQueryGraphLimit, PreferRPM: preferRPM},
+				v3.QBOptions{GraphLimitQtype: constants.FirstQueryGraphLimit, PreferRPM: preferRPM},
 			)
 			if err != nil {
 				ch <- channelResult{Err: err, Name: queryName, Query: limitQuery, Series: nil}
 				return
 			}
-			placeholderQuery, err := tracesV3.PrepareTracesQuery(
+			placeholderQuery, err := tracesQueryBuilder(
 				start,
 				end,
 				params.CompositeQuery.PanelType,
 				builderQuery,
-				tracesV3.Options{GraphLimitQtype: constants.SecondQueryGraphLimit, PreferRPM: preferRPM},
+				v3.QBOptions{GraphLimitQtype: constants.SecondQueryGraphLimit, PreferRPM: preferRPM},
 			)
 			if err != nil {
 				ch <- channelResult{Err: err, Name: queryName, Query: limitQuery, Series: nil}
 				return
 			}
-			query = fmt.Sprintf(placeholderQuery, limitQuery)
+			query = strings.Replace(placeholderQuery, "#LIMIT_PLACEHOLDER", limitQuery, 1)
 		} else {
-			query, err = tracesV3.PrepareTracesQuery(
+			query, err = tracesQueryBuilder(
 				start,
 				end,
 				params.CompositeQuery.PanelType,
 				builderQuery,
-				tracesV3.Options{PreferRPM: preferRPM},
+				v3.QBOptions{PreferRPM: preferRPM},
 			)
 			if err != nil {
 				ch <- channelResult{Err: err, Name: queryName, Query: query, Series: nil}
