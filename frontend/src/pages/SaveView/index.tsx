@@ -15,6 +15,7 @@ import {
 	getViewDetailsUsingViewKey,
 	showErrorNotification,
 } from 'components/ExplorerCard/utils';
+import { DATE_TIME_FORMATS } from 'constants/dateTimeFormats';
 import { getRandomColor } from 'container/ExplorerOptions/utils';
 import { useDeleteView } from 'hooks/saveViews/useDeleteView';
 import { useGetAllViews } from 'hooks/saveViews/useGetAllViews';
@@ -80,7 +81,7 @@ function SaveView(): JSX.Element {
 	};
 
 	const handleEditModelOpen = (view: ViewProps, color: string): void => {
-		setActiveViewKey(view.uuid);
+		setActiveViewKey(view.id);
 		setColor(color);
 		setActiveViewName(view.name);
 		setNewViewName(view.name);
@@ -187,11 +188,11 @@ function SaveView(): JSX.Element {
 
 	const handleRedirectQuery = (view: ViewProps): void => {
 		const currentViewDetails = getViewDetailsUsingViewKey(
-			view.uuid,
+			view.id,
 			viewsData?.data.data,
 		);
 		if (!currentViewDetails) return;
-		const { query, name, uuid, panelType: currentPanelType } = currentViewDetails;
+		const { query, name, id, panelType: currentPanelType } = currentViewDetails;
 
 		if (sourcepage) {
 			handleExplorerTabChange(
@@ -199,7 +200,7 @@ function SaveView(): JSX.Element {
 				{
 					query,
 					name,
-					uuid,
+					id,
 				},
 				SOURCEPAGE_VS_ROUTES[sourcepage],
 			);
@@ -221,7 +222,7 @@ function SaveView(): JSX.Element {
 
 				const formattedDateAndTime = formatTimezoneAdjustedTimestamp(
 					view.createdAt,
-					'HH:mm:ss ⎯ MMM D, YYYY (UTC Z)',
+					DATE_TIME_FORMATS.DASH_TIME_DATE,
 				);
 
 				const isEditDeleteSupported = allowedRoles.includes(user.role as string);
@@ -257,7 +258,7 @@ function SaveView(): JSX.Element {
 									className={isEditDeleteSupported ? '' : 'hidden'}
 									color={Color.BG_CHERRY_500}
 									data-testid="delete-view"
-									onClick={(): void => handleDeleteModelOpen(view.uuid, view.name)}
+									onClick={(): void => handleDeleteModelOpen(view.id, view.name)}
 								/>
 							</div>
 						</div>

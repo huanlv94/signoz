@@ -57,6 +57,8 @@ export interface GetUPlotChartOptions {
 	verticalLineTimestamp?: number;
 	tzDate?: (timestamp: number) => Date;
 	timezone?: string;
+	customSeries?: (data: QueryData[]) => uPlot.Series[];
+	isLogScale?: boolean;
 }
 
 /** the function converts series A , series B , series C to
@@ -162,6 +164,8 @@ export const getUPlotChartOptions = ({
 	verticalLineTimestamp,
 	tzDate,
 	timezone,
+	customSeries,
+	isLogScale,
 }: GetUPlotChartOptions): uPlot.Options => {
 	const timeScaleProps = getXAxisScale(minTimeScale, maxTimeScale);
 
@@ -218,6 +222,7 @@ export const getUPlotChartOptions = ({
 					softMax,
 					softMin,
 				}),
+				distr: isLogScale ? 3 : 1,
 			},
 		},
 		plugins: [
@@ -370,19 +375,21 @@ export const getUPlotChartOptions = ({
 				},
 			],
 		},
-		series: getSeries({
-			series:
-				stackBarChart && isUndefined(hiddenGraph)
-					? series
-					: apiResponse?.data?.result,
-			widgetMetaData: apiResponse?.data.result,
-			graphsVisibilityStates,
-			panelType,
-			currentQuery,
-			stackBarChart,
-			hiddenGraph,
-			isDarkMode,
-		}),
-		axes: getAxes(isDarkMode, yAxisUnit),
+		series: customSeries
+			? customSeries(apiResponse?.data?.result || [])
+			: getSeries({
+					series:
+						stackBarChart && isUndefined(hiddenGraph)
+							? series || []
+							: apiResponse?.data?.result || [],
+					widgetMetaData: apiResponse?.data?.result || [],
+					graphsVisibilityStates,
+					panelType,
+					currentQuery,
+					stackBarChart,
+					hiddenGraph,
+					isDarkMode,
+			  }),
+		axes: getAxes({ isDarkMode, yAxisUnit, panelType, isLogScale }),
 	};
 };

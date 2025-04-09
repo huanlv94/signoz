@@ -3,8 +3,8 @@ package anomaly
 import (
 	"context"
 
-	querierV2 "go.signoz.io/signoz/pkg/query-service/app/querier/v2"
-	"go.signoz.io/signoz/pkg/query-service/app/queryBuilder"
+	querierV2 "github.com/SigNoz/signoz/pkg/query-service/app/querier/v2"
+	"github.com/SigNoz/signoz/pkg/query-service/app/queryBuilder"
 )
 
 type HourlyProvider struct {
@@ -28,11 +28,10 @@ func NewHourlyProvider(opts ...GenericProviderOption[*HourlyProvider]) *HourlyPr
 	}
 
 	hp.querierV2 = querierV2.NewQuerier(querierV2.QuerierOptions{
-		Reader:        hp.reader,
-		Cache:         hp.cache,
-		KeyGenerator:  queryBuilder.NewKeyGenerator(),
-		FluxInterval:  hp.fluxInterval,
-		FeatureLookup: hp.ff,
+		Reader:       hp.reader,
+		Cache:        hp.cache,
+		KeyGenerator: queryBuilder.NewKeyGenerator(),
+		FluxInterval: hp.fluxInterval,
 	})
 
 	return hp

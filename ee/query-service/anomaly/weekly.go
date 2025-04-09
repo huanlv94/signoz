@@ -3,8 +3,8 @@ package anomaly
 import (
 	"context"
 
-	querierV2 "go.signoz.io/signoz/pkg/query-service/app/querier/v2"
-	"go.signoz.io/signoz/pkg/query-service/app/queryBuilder"
+	querierV2 "github.com/SigNoz/signoz/pkg/query-service/app/querier/v2"
+	"github.com/SigNoz/signoz/pkg/query-service/app/queryBuilder"
 )
 
 type WeeklyProvider struct {
@@ -27,11 +27,10 @@ func NewWeeklyProvider(opts ...GenericProviderOption[*WeeklyProvider]) *WeeklyPr
 	}
 
 	wp.querierV2 = querierV2.NewQuerier(querierV2.QuerierOptions{
-		Reader:        wp.reader,
-		Cache:         wp.cache,
-		KeyGenerator:  queryBuilder.NewKeyGenerator(),
-		FluxInterval:  wp.fluxInterval,
-		FeatureLookup: wp.ff,
+		Reader:       wp.reader,
+		Cache:        wp.cache,
+		KeyGenerator: queryBuilder.NewKeyGenerator(),
+		FluxInterval: wp.fluxInterval,
 	})
 
 	return wp

@@ -2,16 +2,26 @@ package rules
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/SigNoz/signoz/pkg/cache"
+	"github.com/SigNoz/signoz/pkg/cache/memorycache"
+	"github.com/SigNoz/signoz/pkg/factory/factorytest"
+	"github.com/SigNoz/signoz/pkg/instrumentation/instrumentationtest"
+	"github.com/SigNoz/signoz/pkg/prometheus"
+	"github.com/SigNoz/signoz/pkg/prometheus/prometheustest"
+	"github.com/SigNoz/signoz/pkg/telemetrystore"
+	"github.com/SigNoz/signoz/pkg/telemetrystore/telemetrystoretest"
+
+	"github.com/SigNoz/signoz/pkg/query-service/app/clickhouseReader"
+	"github.com/SigNoz/signoz/pkg/query-service/common"
+	v3 "github.com/SigNoz/signoz/pkg/query-service/model/v3"
+	"github.com/SigNoz/signoz/pkg/query-service/utils/labels"
 	"github.com/stretchr/testify/assert"
-	"go.signoz.io/signoz/pkg/query-service/app/clickhouseReader"
-	"go.signoz.io/signoz/pkg/query-service/common"
-	"go.signoz.io/signoz/pkg/query-service/featureManager"
-	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
-	"go.signoz.io/signoz/pkg/query-service/utils/labels"
+	"github.com/stretchr/testify/require"
 
 	cmock "github.com/srikanthccv/ClickHouse-go-mock"
 )
@@ -785,13 +795,12 @@ func TestThresholdRuleShouldAlert(t *testing.T) {
 		},
 	}
 
-	fm := featureManager.StartManager()
 	for idx, c := range cases {
 		postableRule.RuleCondition.CompareOp = CompareOp(c.compareOp)
 		postableRule.RuleCondition.MatchType = MatchType(c.matchType)
 		postableRule.RuleCondition.Target = &c.target
 
-		rule, err := NewThresholdRule("69", &postableRule, fm, nil, true, true, WithEvalDelay(2*time.Minute))
+		rule, err := NewThresholdRule("69", &postableRule, nil, true, true, WithEvalDelay(2*time.Minute))
 		if err != nil {
 			assert.NoError(t, err)
 		}
@@ -878,9 +887,8 @@ func TestPrepareLinksToLogs(t *testing.T) {
 			SelectedQuery: "A",
 		},
 	}
-	fm := featureManager.StartManager()
 
-	rule, err := NewThresholdRule("69", &postableRule, fm, nil, true, true, WithEvalDelay(2*time.Minute))
+	rule, err := NewThresholdRule("69", &postableRule, nil, true, true, WithEvalDelay(2*time.Minute))
 	if err != nil {
 		assert.NoError(t, err)
 	}
@@ -920,9 +928,8 @@ func TestPrepareLinksToTraces(t *testing.T) {
 			SelectedQuery: "A",
 		},
 	}
-	fm := featureManager.StartManager()
 
-	rule, err := NewThresholdRule("69", &postableRule, fm, nil, true, true, WithEvalDelay(2*time.Minute))
+	rule, err := NewThresholdRule("69", &postableRule, nil, true, true, WithEvalDelay(2*time.Minute))
 	if err != nil {
 		assert.NoError(t, err)
 	}
@@ -992,13 +999,12 @@ func TestThresholdRuleLabelNormalization(t *testing.T) {
 		},
 	}
 
-	fm := featureManager.StartManager()
 	for idx, c := range cases {
 		postableRule.RuleCondition.CompareOp = CompareOp(c.compareOp)
 		postableRule.RuleCondition.MatchType = MatchType(c.matchType)
 		postableRule.RuleCondition.Target = &c.target
 
-		rule, err := NewThresholdRule("69", &postableRule, fm, nil, true, true, WithEvalDelay(2*time.Minute))
+		rule, err := NewThresholdRule("69", &postableRule, nil, true, true, WithEvalDelay(2*time.Minute))
 		if err != nil {
 			assert.NoError(t, err)
 		}
@@ -1049,9 +1055,8 @@ func TestThresholdRuleEvalDelay(t *testing.T) {
 		},
 	}
 
-	fm := featureManager.StartManager()
 	for idx, c := range cases {
-		rule, err := NewThresholdRule("69", &postableRule, fm, nil, true, true) // no eval delay
+		rule, err := NewThresholdRule("69", &postableRule, nil, true, true) // no eval delay
 		if err != nil {
 			assert.NoError(t, err)
 		}
@@ -1098,9 +1103,8 @@ func TestThresholdRuleClickHouseTmpl(t *testing.T) {
 		},
 	}
 
-	fm := featureManager.StartManager()
 	for idx, c := range cases {
-		rule, err := NewThresholdRule("69", &postableRule, fm, nil, true, true, WithEvalDelay(2*time.Minute))
+		rule, err := NewThresholdRule("69", &postableRule, nil, true, true, WithEvalDelay(2*time.Minute))
 		if err != nil {
 			assert.NoError(t, err)
 		}
@@ -1147,11 +1151,7 @@ func TestThresholdRuleUnitCombinations(t *testing.T) {
 			},
 		},
 	}
-	fm := featureManager.StartManager()
-	mock, err := cmock.NewClickHouseWithQueryMatcher(nil, &queryMatcherAny{})
-	if err != nil {
-		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
-	}
+	telemetryStore := telemetrystoretest.New(telemetrystore.Config{}, &queryMatcherAny{})
 
 	cols := make([]cmock.ColumnType, 0)
 	cols = append(cols, cmock.ColumnType{Name: "value", Type: "Float64"})
@@ -1223,11 +1223,11 @@ func TestThresholdRuleUnitCombinations(t *testing.T) {
 
 	for idx, c := range cases {
 		rows := cmock.NewRows(cols, c.values)
-
+		telemetryStore.Mock().ExpectQuery(".*").WillReturnError(fmt.Errorf("error"))
 		// We are testing the eval logic after the query is run
 		// so we don't care about the query string here
 		queryString := "SELECT any"
-		mock.
+		telemetryStore.Mock().
 			ExpectQuery(queryString).
 			WillReturnRows(rows)
 		postableRule.RuleCondition.CompareOp = CompareOp(c.compareOp)
@@ -1240,10 +1240,11 @@ func TestThresholdRuleUnitCombinations(t *testing.T) {
 			"summary":     "The rule threshold is set to {{$threshold}}, and the observed metric value is {{$value}}",
 		}
 
-		options := clickhouseReader.NewOptions("", 0, 0, 0, "", "archiveNamespace")
-		reader := clickhouseReader.NewReaderFromClickhouseConnection(mock, options, nil, "", fm, "", true, true)
-
-		rule, err := NewThresholdRule("69", &postableRule, fm, reader, true, true)
+		options := clickhouseReader.NewOptions("", "", "archiveNamespace")
+		readerCache, err := memorycache.New(context.Background(), factorytest.NewSettings(), cache.Config{Provider: "memory", Memory: cache.Memory{TTL: DefaultFrequency}})
+		require.NoError(t, err)
+		reader := clickhouseReader.NewReaderFromClickhouseConnection(options, nil, telemetryStore, prometheustest.New(instrumentationtest.New().Logger(), prometheus.Config{}), "", true, true, time.Duration(time.Second), readerCache)
+		rule, err := NewThresholdRule("69", &postableRule, reader, true, true)
 		rule.TemporalityMap = map[string]map[v3.Temporality]bool{
 			"signoz_calls_total": {
 				v3.Delta: true,
@@ -1300,11 +1301,7 @@ func TestThresholdRuleNoData(t *testing.T) {
 			AlertOnAbsent: true,
 		},
 	}
-	fm := featureManager.StartManager()
-	mock, err := cmock.NewClickHouseWithQueryMatcher(nil, &queryMatcherAny{})
-	if err != nil {
-		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
-	}
+	telemetryStore := telemetrystoretest.New(telemetrystore.Config{}, &queryMatcherAny{})
 
 	cols := make([]cmock.ColumnType, 0)
 	cols = append(cols, cmock.ColumnType{Name: "value", Type: "Float64"})
@@ -1324,10 +1321,12 @@ func TestThresholdRuleNoData(t *testing.T) {
 	for idx, c := range cases {
 		rows := cmock.NewRows(cols, c.values)
 
+		telemetryStore.Mock().ExpectQuery(".*").WillReturnError(fmt.Errorf("error"))
+
 		// We are testing the eval logic after the query is run
 		// so we don't care about the query string here
 		queryString := "SELECT any"
-		mock.
+		telemetryStore.Mock().
 			ExpectQuery(queryString).
 			WillReturnRows(rows)
 		var target float64 = 0
@@ -1338,11 +1337,11 @@ func TestThresholdRuleNoData(t *testing.T) {
 			"description": "This alert is fired when the defined metric (current value: {{$value}}) crosses the threshold ({{$threshold}})",
 			"summary":     "The rule threshold is set to {{$threshold}}, and the observed metric value is {{$value}}",
 		}
+		readerCache, err := memorycache.New(context.Background(), factorytest.NewSettings(), cache.Config{Provider: "memory", Memory: cache.Memory{TTL: DefaultFrequency}})
+		options := clickhouseReader.NewOptions("", "", "archiveNamespace")
+		reader := clickhouseReader.NewReaderFromClickhouseConnection(options, nil, telemetryStore, prometheustest.New(instrumentationtest.New().Logger(), prometheus.Config{}), "", true, true, time.Duration(time.Second), readerCache)
 
-		options := clickhouseReader.NewOptions("", 0, 0, 0, "", "archiveNamespace")
-		reader := clickhouseReader.NewReaderFromClickhouseConnection(mock, options, nil, "", fm, "", true, true)
-
-		rule, err := NewThresholdRule("69", &postableRule, fm, reader, true, true)
+		rule, err := NewThresholdRule("69", &postableRule, reader, true, true)
 		rule.TemporalityMap = map[string]map[v3.Temporality]bool{
 			"signoz_calls_total": {
 				v3.Delta: true,
@@ -1403,11 +1402,7 @@ func TestThresholdRuleTracesLink(t *testing.T) {
 			},
 		},
 	}
-	fm := featureManager.StartManager()
-	mock, err := cmock.NewClickHouseWithQueryMatcher(nil, &queryMatcherAny{})
-	if err != nil {
-		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
-	}
+	telemetryStore := telemetrystoretest.New(telemetrystore.Config{}, &queryMatcherAny{})
 
 	metaCols := make([]cmock.ColumnType, 0)
 	metaCols = append(metaCols, cmock.ColumnType{Name: "DISTINCT(tagKey)", Type: "String"})
@@ -1422,11 +1417,11 @@ func TestThresholdRuleTracesLink(t *testing.T) {
 
 	for idx, c := range testCases {
 		metaRows := cmock.NewRows(metaCols, c.metaValues)
-		mock.
+		telemetryStore.Mock().
 			ExpectQuery("SELECT DISTINCT(tagKey), tagType, dataType FROM archiveNamespace.span_attributes_keys").
 			WillReturnRows(metaRows)
 
-		mock.
+		telemetryStore.Mock().
 			ExpectSelect("SHOW CREATE TABLE signoz_traces.distributed_signoz_index_v3").WillReturnRows(&cmock.Rows{})
 
 		rows := cmock.NewRows(cols, c.values)
@@ -1434,7 +1429,7 @@ func TestThresholdRuleTracesLink(t *testing.T) {
 		// We are testing the eval logic after the query is run
 		// so we don't care about the query string here
 		queryString := "SELECT any"
-		mock.
+		telemetryStore.Mock().
 			ExpectQuery(queryString).
 			WillReturnRows(rows)
 		postableRule.RuleCondition.CompareOp = CompareOp(c.compareOp)
@@ -1447,10 +1442,10 @@ func TestThresholdRuleTracesLink(t *testing.T) {
 			"summary":     "The rule threshold is set to {{$threshold}}, and the observed metric value is {{$value}}",
 		}
 
-		options := clickhouseReader.NewOptions("", 0, 0, 0, "", "archiveNamespace")
-		reader := clickhouseReader.NewReaderFromClickhouseConnection(mock, options, nil, "", fm, "", true, true)
+		options := clickhouseReader.NewOptions("", "", "archiveNamespace")
+		reader := clickhouseReader.NewReaderFromClickhouseConnection(options, nil, telemetryStore, prometheustest.New(instrumentationtest.New().Logger(), prometheus.Config{}), "", true, true, time.Duration(time.Second), nil)
 
-		rule, err := NewThresholdRule("69", &postableRule, fm, reader, true, true)
+		rule, err := NewThresholdRule("69", &postableRule, reader, true, true)
 		rule.TemporalityMap = map[string]map[v3.Temporality]bool{
 			"signoz_calls_total": {
 				v3.Delta: true,
@@ -1516,11 +1511,7 @@ func TestThresholdRuleLogsLink(t *testing.T) {
 			},
 		},
 	}
-	fm := featureManager.StartManager()
-	mock, err := cmock.NewClickHouseWithQueryMatcher(nil, &queryMatcherAny{})
-	if err != nil {
-		t.Errorf("an error '%s' was not expected when opening a stub database connection", err)
-	}
+	telemetryStore := telemetrystoretest.New(telemetrystore.Config{}, &queryMatcherAny{})
 
 	attrMetaCols := make([]cmock.ColumnType, 0)
 	attrMetaCols = append(attrMetaCols, cmock.ColumnType{Name: "name", Type: "String"})
@@ -1540,17 +1531,17 @@ func TestThresholdRuleLogsLink(t *testing.T) {
 
 	for idx, c := range testCases {
 		attrMetaRows := cmock.NewRows(attrMetaCols, c.attrMetaValues)
-		mock.
+		telemetryStore.Mock().
 			ExpectSelect("SELECT DISTINCT name, datatype from signoz_logs.distributed_logs_attribute_keys group by name, datatype").
 			WillReturnRows(attrMetaRows)
 
 		resourceMetaRows := cmock.NewRows(resourceMetaCols, c.resourceMetaValues)
-		mock.
+		telemetryStore.Mock().
 			ExpectSelect("SELECT DISTINCT name, datatype from signoz_logs.distributed_logs_resource_keys group by name, datatype").
 			WillReturnRows(resourceMetaRows)
 
 		createTableRows := cmock.NewRows(createTableCols, c.createTableValues)
-		mock.
+		telemetryStore.Mock().
 			ExpectSelect("SHOW CREATE TABLE signoz_logs.logs").
 			WillReturnRows(createTableRows)
 
@@ -1559,7 +1550,7 @@ func TestThresholdRuleLogsLink(t *testing.T) {
 		// We are testing the eval logic after the query is run
 		// so we don't care about the query string here
 		queryString := "SELECT any"
-		mock.
+		telemetryStore.Mock().
 			ExpectQuery(queryString).
 			WillReturnRows(rows)
 		postableRule.RuleCondition.CompareOp = CompareOp(c.compareOp)
@@ -1572,10 +1563,10 @@ func TestThresholdRuleLogsLink(t *testing.T) {
 			"summary":     "The rule threshold is set to {{$threshold}}, and the observed metric value is {{$value}}",
 		}
 
-		options := clickhouseReader.NewOptions("", 0, 0, 0, "", "archiveNamespace")
-		reader := clickhouseReader.NewReaderFromClickhouseConnection(mock, options, nil, "", fm, "", true, true)
+		options := clickhouseReader.NewOptions("", "", "archiveNamespace")
+		reader := clickhouseReader.NewReaderFromClickhouseConnection(options, nil, telemetryStore, prometheustest.New(instrumentationtest.New().Logger(), prometheus.Config{}), "", true, true, time.Duration(time.Second), nil)
 
-		rule, err := NewThresholdRule("69", &postableRule, fm, reader, true, true)
+		rule, err := NewThresholdRule("69", &postableRule, reader, true, true)
 		rule.TemporalityMap = map[string]map[v3.Temporality]bool{
 			"signoz_calls_total": {
 				v3.Delta: true,
@@ -1651,7 +1642,7 @@ func TestThresholdRuleShiftBy(t *testing.T) {
 		},
 	}
 
-	rule, err := NewThresholdRule("69", &postableRule, nil, nil, true, true)
+	rule, err := NewThresholdRule("69", &postableRule, nil, true, true)
 	if err != nil {
 		assert.NoError(t, err)
 	}

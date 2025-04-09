@@ -1,10 +1,13 @@
 import './TimeSeriesView.styles.scss';
 
+import logEvent from 'api/common/logEvent';
 import Uplot from 'components/Uplot';
 import { QueryParams } from 'constants/query';
 import EmptyLogsSearch from 'container/EmptyLogsSearch/EmptyLogsSearch';
 import LogsError from 'container/LogsError/LogsError';
 import { LogsLoading } from 'container/LogsLoading/LogsLoading';
+import EmptyMetricsSearch from 'container/MetricsExplorer/Explorer/EmptyMetricsSearch';
+import { MetricsLoading } from 'container/MetricsExplorer/MetricsLoading/MetricsLoading';
 import NoLogs from 'container/NoLogs/NoLogs';
 import { CustomTimeType } from 'container/TopNav/DateTimeSelectionV2/config';
 import { TracesLoading } from 'container/TracesExplorer/TraceLoading/TraceLoading';
@@ -120,6 +123,24 @@ function TimeSeriesView({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	useEffect(() => {
+		if (chartData[0] && chartData[0]?.length !== 0 && !isLoading && !isError) {
+			if (dataSource === DataSource.TRACES) {
+				logEvent('Traces Explorer: Data present', {
+					panelType: 'TIME_SERIES',
+				});
+			} else if (dataSource === DataSource.LOGS) {
+				logEvent('Logs Explorer: Data present', {
+					panelType: 'TIME_SERIES',
+				});
+			} else if (dataSource === DataSource.METRICS) {
+				logEvent('Metrics Explorer: Data present', {
+					panelType: 'TIME_SERIES',
+				});
+			}
+		}
+	}, [isLoading, isError, chartData, dataSource]);
+
 	const { timezone } = useTimezone();
 
 	const chartOptions = getUPlotChartOptions({
@@ -149,8 +170,9 @@ function TimeSeriesView({
 				ref={graphRef}
 				data-testid="time-series-graph"
 			>
-				{isLoading &&
-					(dataSource === DataSource.LOGS ? <LogsLoading /> : <TracesLoading />)}
+				{isLoading && dataSource === DataSource.LOGS && <LogsLoading />}
+				{isLoading && dataSource === DataSource.TRACES && <TracesLoading />}
+				{isLoading && dataSource === DataSource.METRICS && <MetricsLoading />}
 
 				{chartData &&
 					chartData[0] &&
@@ -166,7 +188,15 @@ function TimeSeriesView({
 					chartData[0]?.length === 0 &&
 					!isLoading &&
 					!isError &&
-					!isFilterApplied && <NoLogs dataSource={dataSource} />}
+					!isFilterApplied &&
+					dataSource !== DataSource.METRICS && <NoLogs dataSource={dataSource} />}
+
+				{chartData &&
+					chartData[0] &&
+					chartData[0]?.length === 0 &&
+					!isLoading &&
+					!isError &&
+					dataSource === DataSource.METRICS && <EmptyMetricsSearch />}
 
 				{!isLoading &&
 					!isError &&

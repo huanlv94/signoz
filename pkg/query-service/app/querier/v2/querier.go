@@ -6,22 +6,22 @@ import (
 	"sync"
 	"time"
 
-	logsV3 "go.signoz.io/signoz/pkg/query-service/app/logs/v3"
-	logsV4 "go.signoz.io/signoz/pkg/query-service/app/logs/v4"
-	metricsV4 "go.signoz.io/signoz/pkg/query-service/app/metrics/v4"
-	"go.signoz.io/signoz/pkg/query-service/app/queryBuilder"
-	tracesV3 "go.signoz.io/signoz/pkg/query-service/app/traces/v3"
-	tracesV4 "go.signoz.io/signoz/pkg/query-service/app/traces/v4"
-	"go.signoz.io/signoz/pkg/query-service/common"
-	"go.signoz.io/signoz/pkg/query-service/constants"
-	chErrors "go.signoz.io/signoz/pkg/query-service/errors"
-	"go.signoz.io/signoz/pkg/query-service/querycache"
-	"go.signoz.io/signoz/pkg/query-service/utils"
+	logsV3 "github.com/SigNoz/signoz/pkg/query-service/app/logs/v3"
+	logsV4 "github.com/SigNoz/signoz/pkg/query-service/app/logs/v4"
+	metricsV4 "github.com/SigNoz/signoz/pkg/query-service/app/metrics/v4"
+	"github.com/SigNoz/signoz/pkg/query-service/app/queryBuilder"
+	tracesV3 "github.com/SigNoz/signoz/pkg/query-service/app/traces/v3"
+	tracesV4 "github.com/SigNoz/signoz/pkg/query-service/app/traces/v4"
+	"github.com/SigNoz/signoz/pkg/query-service/common"
+	"github.com/SigNoz/signoz/pkg/query-service/constants"
+	chErrors "github.com/SigNoz/signoz/pkg/query-service/errors"
+	"github.com/SigNoz/signoz/pkg/query-service/querycache"
+	"github.com/SigNoz/signoz/pkg/query-service/utils"
 
-	"go.signoz.io/signoz/pkg/query-service/cache"
-	"go.signoz.io/signoz/pkg/query-service/interfaces"
-	"go.signoz.io/signoz/pkg/query-service/model"
-	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
+	"github.com/SigNoz/signoz/pkg/query-service/cache"
+	"github.com/SigNoz/signoz/pkg/query-service/interfaces"
+	"github.com/SigNoz/signoz/pkg/query-service/model"
+	v3 "github.com/SigNoz/signoz/pkg/query-service/model/v3"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 )
@@ -42,8 +42,7 @@ type querier struct {
 
 	fluxInterval time.Duration
 
-	builder       *queryBuilder.QueryBuilder
-	featureLookUp interfaces.FeatureLookup
+	builder *queryBuilder.QueryBuilder
 
 	// used for testing
 	// TODO(srikanthccv): remove this once we have a proper mock
@@ -58,11 +57,10 @@ type querier struct {
 }
 
 type QuerierOptions struct {
-	Reader        interfaces.Reader
-	Cache         cache.Cache
-	KeyGenerator  cache.KeyGenerator
-	FluxInterval  time.Duration
-	FeatureLookup interfaces.FeatureLookup
+	Reader       interfaces.Reader
+	Cache        cache.Cache
+	KeyGenerator cache.KeyGenerator
+	FluxInterval time.Duration
 
 	// used for testing
 	TestingMode       bool
@@ -96,8 +94,7 @@ func NewQuerier(opts QuerierOptions) interfaces.Querier {
 			BuildTraceQuery:  tracesQueryBuilder,
 			BuildLogQuery:    logsQueryBuilder,
 			BuildMetricQuery: metricsV4.PrepareMetricQuery,
-		}, opts.FeatureLookup),
-		featureLookUp: opts.FeatureLookup,
+		}),
 
 		testingMode:       opts.TestingMode,
 		returnedSeries:    opts.ReturnedSeries,
@@ -548,6 +545,7 @@ func (q *querier) QueryRange(ctx context.Context, params *v3.QueryRangeParamsV3)
 			if params.CompositeQuery.PanelType == v3.PanelTypeList || params.CompositeQuery.PanelType == v3.PanelTypeTrace {
 				results, errQueriesByName, err = q.runBuilderListQueries(ctx, params)
 			} else {
+				ctx = context.WithValue(ctx, "enforce_max_result_rows", true)
 				results, errQueriesByName, err = q.runClickHouseQueries(ctx, params)
 			}
 		default:

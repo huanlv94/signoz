@@ -3,12 +3,9 @@ package cache
 import (
 	"time"
 
+	"github.com/SigNoz/signoz/pkg/factory"
 	go_cache "github.com/patrickmn/go-cache"
-	"go.signoz.io/signoz/pkg/confmap"
 )
-
-// Config satisfies the confmap.Config interface
-var _ confmap.Config = (*Config)(nil)
 
 type Memory struct {
 	TTL             time.Duration `mapstructure:"ttl"`
@@ -28,7 +25,11 @@ type Config struct {
 	Redis    Redis  `mapstructure:"redis"`
 }
 
-func (c *Config) NewWithDefaults() confmap.Config {
+func NewConfigFactory() factory.ConfigFactory {
+	return factory.NewConfigFactory(factory.MustNewName("cache"), newConfig)
+}
+
+func newConfig() factory.Config {
 	return &Config{
 		Provider: "memory",
 		Memory: Memory{
@@ -42,8 +43,9 @@ func (c *Config) NewWithDefaults() confmap.Config {
 			DB:       0,
 		},
 	}
+
 }
 
-func (c *Config) Validate() error {
+func (c Config) Validate() error {
 	return nil
 }

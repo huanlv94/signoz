@@ -5,12 +5,12 @@ import (
 	"math"
 	"sort"
 
-	"go.signoz.io/signoz/pkg/query-service/app/metrics/v4/helpers"
-	"go.signoz.io/signoz/pkg/query-service/common"
-	"go.signoz.io/signoz/pkg/query-service/interfaces"
-	"go.signoz.io/signoz/pkg/query-service/model"
-	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
-	"go.signoz.io/signoz/pkg/query-service/postprocess"
+	"github.com/SigNoz/signoz/pkg/query-service/app/metrics/v4/helpers"
+	"github.com/SigNoz/signoz/pkg/query-service/common"
+	"github.com/SigNoz/signoz/pkg/query-service/interfaces"
+	"github.com/SigNoz/signoz/pkg/query-service/model"
+	v3 "github.com/SigNoz/signoz/pkg/query-service/model/v3"
+	"github.com/SigNoz/signoz/pkg/query-service/postprocess"
 	"golang.org/x/exp/slices"
 )
 
@@ -322,7 +322,7 @@ func (p *NamespacesRepo) GetNamespaceList(ctx context.Context, req model.Namespa
 			}
 
 			record.Meta = map[string]string{}
-			if _, ok := namespaceAttrs[record.NamespaceName]; ok {
+			if _, ok := namespaceAttrs[record.NamespaceName]; ok && record.NamespaceName != "" {
 				record.Meta = namespaceAttrs[record.NamespaceName]
 			}
 
@@ -340,6 +340,8 @@ func (p *NamespacesRepo) GetNamespaceList(ctx context.Context, req model.Namespa
 	}
 	resp.Total = len(allNamespaceGroups)
 	resp.Records = records
+
+	resp.SortBy(req.OrderBy)
 
 	return resp, nil
 }

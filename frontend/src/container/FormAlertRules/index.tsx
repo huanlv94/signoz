@@ -17,8 +17,8 @@ import { BuilderUnitsFilter } from 'container/QueryBuilder/filters';
 import { useQueryBuilder } from 'hooks/queryBuilder/useQueryBuilder';
 import { useShareBuilderUrl } from 'hooks/queryBuilder/useShareBuilderUrl';
 import { useNotifications } from 'hooks/useNotifications';
+import { useSafeNavigate } from 'hooks/useSafeNavigate';
 import useUrlQuery from 'hooks/useUrlQuery';
-import history from 'lib/history';
 import { mapQueryDataFromApi } from 'lib/newQueryBuilder/queryBuilderMappers/mapQueryDataFromApi';
 import { mapQueryDataToApi } from 'lib/newQueryBuilder/queryBuilderMappers/mapQueryDataToApi';
 import { isEqual } from 'lodash-es';
@@ -87,7 +87,7 @@ function FormAlertRules({
 	// init namespace for translations
 	const { t } = useTranslation('alerts');
 	const { featureFlags } = useAppContext();
-
+	const { safeNavigate } = useSafeNavigate();
 	const { selectedTime: globalSelectedInterval } = useSelector<
 		AppState,
 		GlobalReducer
@@ -224,7 +224,7 @@ function FormAlertRules({
 
 		const generatedUrl = `${location.pathname}?${queryParams.toString()}`;
 
-		history.replace(generatedUrl);
+		safeNavigate(generatedUrl);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [detectionMethod]);
 
@@ -295,8 +295,8 @@ function FormAlertRules({
 		urlQuery.delete(QueryParams.panelTypes);
 		urlQuery.delete(QueryParams.ruleId);
 		urlQuery.delete(QueryParams.relativeTime);
-		history.replace(`${ROUTES.LIST_ALL_ALERT}?${urlQuery.toString()}`);
-	}, [urlQuery]);
+		safeNavigate(`${ROUTES.LIST_ALL_ALERT}?${urlQuery.toString()}`);
+	}, [safeNavigate, urlQuery]);
 
 	// onQueryCategoryChange handles changes to query category
 	// in state as well as sets additional defaults
@@ -467,10 +467,6 @@ function FormAlertRules({
 		panelType,
 	]);
 
-	const isAlertAvailable =
-		!featureFlags?.find((flag) => flag.name === FeatureKeys.QUERY_BUILDER_ALERTS)
-			?.active || false;
-
 	const saveRule = useCallback(async () => {
 		if (!isFormValid()) {
 			return;
@@ -515,7 +511,7 @@ function FormAlertRules({
 					urlQuery.delete(QueryParams.panelTypes);
 					urlQuery.delete(QueryParams.ruleId);
 					urlQuery.delete(QueryParams.relativeTime);
-					history.replace(`${ROUTES.LIST_ALL_ALERT}?${urlQuery.toString()}`);
+					safeNavigate(`${ROUTES.LIST_ALL_ALERT}?${urlQuery.toString()}`);
 				}, 2000);
 			} else {
 				logData = {
@@ -687,11 +683,6 @@ function FormAlertRules({
 	);
 
 	const isAlertNameMissing = !formInstance.getFieldValue('alert');
-
-	const isAlertAvailableToSave =
-		isAlertAvailable &&
-		currentQuery.queryType === EQueryType.QUERY_BUILDER &&
-		alertType !== AlertTypes.METRICS_BASED_ALERT;
 
 	const onUnitChangeHandler = (value: string): void => {
 		setYAxisUnit(value);
@@ -865,7 +856,6 @@ function FormAlertRules({
 							icon={<SaveOutlined />}
 							disabled={
 								isAlertNameMissing ||
-								isAlertAvailableToSave ||
 								!isChannelConfigurationValid ||
 								queryStatus === 'error'
 							}

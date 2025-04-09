@@ -5,12 +5,12 @@ import (
 	"math"
 	"sort"
 
-	"go.signoz.io/signoz/pkg/query-service/app/metrics/v4/helpers"
-	"go.signoz.io/signoz/pkg/query-service/common"
-	"go.signoz.io/signoz/pkg/query-service/interfaces"
-	"go.signoz.io/signoz/pkg/query-service/model"
-	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
-	"go.signoz.io/signoz/pkg/query-service/postprocess"
+	"github.com/SigNoz/signoz/pkg/query-service/app/metrics/v4/helpers"
+	"github.com/SigNoz/signoz/pkg/query-service/common"
+	"github.com/SigNoz/signoz/pkg/query-service/interfaces"
+	"github.com/SigNoz/signoz/pkg/query-service/model"
+	v3 "github.com/SigNoz/signoz/pkg/query-service/model/v3"
+	"github.com/SigNoz/signoz/pkg/query-service/postprocess"
 	"golang.org/x/exp/slices"
 )
 
@@ -19,7 +19,8 @@ var (
 
 	clusterAttrsToEnrich = []string{"k8s_cluster_name"}
 
-	k8sClusterUIDAttrKey = "k8s_cluster_uid"
+	// TODO(srikanthccv): change this to k8s_cluster_uid after showing the missing data banner
+	k8sClusterUIDAttrKey = "k8s_cluster_name"
 
 	queryNamesForClusters = map[string][]string{
 		"cpu":                {"A"},
@@ -319,7 +320,7 @@ func (p *ClustersRepo) GetClusterList(ctx context.Context, req model.ClusterList
 			}
 
 			record.Meta = map[string]string{}
-			if _, ok := clusterAttrs[record.ClusterUID]; ok {
+			if _, ok := clusterAttrs[record.ClusterUID]; ok && record.ClusterUID != "" {
 				record.Meta = clusterAttrs[record.ClusterUID]
 			}
 
@@ -337,6 +338,8 @@ func (p *ClustersRepo) GetClusterList(ctx context.Context, req model.ClusterList
 	}
 	resp.Total = len(allClusterGroups)
 	resp.Records = records
+
+	resp.SortBy(req.OrderBy)
 
 	return resp, nil
 }

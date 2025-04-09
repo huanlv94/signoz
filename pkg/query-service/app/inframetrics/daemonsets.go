@@ -5,12 +5,12 @@ import (
 	"math"
 	"sort"
 
-	"go.signoz.io/signoz/pkg/query-service/app/metrics/v4/helpers"
-	"go.signoz.io/signoz/pkg/query-service/common"
-	"go.signoz.io/signoz/pkg/query-service/interfaces"
-	"go.signoz.io/signoz/pkg/query-service/model"
-	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
-	"go.signoz.io/signoz/pkg/query-service/postprocess"
+	"github.com/SigNoz/signoz/pkg/query-service/app/metrics/v4/helpers"
+	"github.com/SigNoz/signoz/pkg/query-service/common"
+	"github.com/SigNoz/signoz/pkg/query-service/interfaces"
+	"github.com/SigNoz/signoz/pkg/query-service/model"
+	v3 "github.com/SigNoz/signoz/pkg/query-service/model/v3"
+	"github.com/SigNoz/signoz/pkg/query-service/postprocess"
 	"golang.org/x/exp/slices"
 )
 
@@ -296,7 +296,7 @@ func (d *DaemonSetsRepo) GetDaemonSetList(ctx context.Context, req model.DaemonS
 
 	// add additional queries for daemon sets
 	for _, daemonSetQuery := range builderQueriesForDaemonSets {
-		query.CompositeQuery.BuilderQueries[daemonSetQuery.QueryName] = daemonSetQuery
+		query.CompositeQuery.BuilderQueries[daemonSetQuery.QueryName] = daemonSetQuery.Clone()
 	}
 
 	for _, query := range query.CompositeQuery.BuilderQueries {
@@ -421,7 +421,7 @@ func (d *DaemonSetsRepo) GetDaemonSetList(ctx context.Context, req model.DaemonS
 			}
 
 			record.Meta = map[string]string{}
-			if _, ok := daemonSetAttrs[record.DaemonSetName]; ok {
+			if _, ok := daemonSetAttrs[record.DaemonSetName]; ok && record.DaemonSetName != "" {
 				record.Meta = daemonSetAttrs[record.DaemonSetName]
 			}
 
@@ -439,6 +439,8 @@ func (d *DaemonSetsRepo) GetDaemonSetList(ctx context.Context, req model.DaemonS
 	}
 	resp.Total = len(allDaemonSetGroups)
 	resp.Records = records
+
+	resp.SortBy(req.OrderBy)
 
 	return resp, nil
 }

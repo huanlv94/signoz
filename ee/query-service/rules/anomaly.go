@@ -11,22 +11,22 @@ import (
 
 	"go.uber.org/zap"
 
-	"go.signoz.io/signoz/ee/query-service/anomaly"
-	"go.signoz.io/signoz/pkg/query-service/cache"
-	"go.signoz.io/signoz/pkg/query-service/common"
-	"go.signoz.io/signoz/pkg/query-service/model"
+	"github.com/SigNoz/signoz/ee/query-service/anomaly"
+	"github.com/SigNoz/signoz/pkg/query-service/cache"
+	"github.com/SigNoz/signoz/pkg/query-service/common"
+	"github.com/SigNoz/signoz/pkg/query-service/model"
 
-	querierV2 "go.signoz.io/signoz/pkg/query-service/app/querier/v2"
-	"go.signoz.io/signoz/pkg/query-service/app/queryBuilder"
-	"go.signoz.io/signoz/pkg/query-service/interfaces"
-	v3 "go.signoz.io/signoz/pkg/query-service/model/v3"
-	"go.signoz.io/signoz/pkg/query-service/utils/labels"
-	"go.signoz.io/signoz/pkg/query-service/utils/times"
-	"go.signoz.io/signoz/pkg/query-service/utils/timestamp"
+	querierV2 "github.com/SigNoz/signoz/pkg/query-service/app/querier/v2"
+	"github.com/SigNoz/signoz/pkg/query-service/app/queryBuilder"
+	"github.com/SigNoz/signoz/pkg/query-service/interfaces"
+	v3 "github.com/SigNoz/signoz/pkg/query-service/model/v3"
+	"github.com/SigNoz/signoz/pkg/query-service/utils/labels"
+	"github.com/SigNoz/signoz/pkg/query-service/utils/times"
+	"github.com/SigNoz/signoz/pkg/query-service/utils/timestamp"
 
-	"go.signoz.io/signoz/pkg/query-service/formatter"
+	"github.com/SigNoz/signoz/pkg/query-service/formatter"
 
-	baserules "go.signoz.io/signoz/pkg/query-service/rules"
+	baserules "github.com/SigNoz/signoz/pkg/query-service/rules"
 
 	yaml "gopkg.in/yaml.v2"
 )
@@ -53,7 +53,6 @@ type AnomalyRule struct {
 func NewAnomalyRule(
 	id string,
 	p *baserules.PostableRule,
-	featureFlags interfaces.FeatureLookup,
 	reader interfaces.Reader,
 	cache cache.Cache,
 	opts ...baserules.RuleOption,
@@ -89,10 +88,9 @@ func NewAnomalyRule(
 	zap.L().Info("using seasonality", zap.String("seasonality", t.seasonality.String()))
 
 	querierOptsV2 := querierV2.QuerierOptions{
-		Reader:        reader,
-		Cache:         cache,
-		KeyGenerator:  queryBuilder.NewKeyGenerator(),
-		FeatureLookup: featureFlags,
+		Reader:       reader,
+		Cache:        cache,
+		KeyGenerator: queryBuilder.NewKeyGenerator(),
 	}
 
 	t.querierV2 = querierV2.NewQuerier(querierOptsV2)
@@ -102,21 +100,18 @@ func NewAnomalyRule(
 			anomaly.WithCache[*anomaly.HourlyProvider](cache),
 			anomaly.WithKeyGenerator[*anomaly.HourlyProvider](queryBuilder.NewKeyGenerator()),
 			anomaly.WithReader[*anomaly.HourlyProvider](reader),
-			anomaly.WithFeatureLookup[*anomaly.HourlyProvider](featureFlags),
 		)
 	} else if t.seasonality == anomaly.SeasonalityDaily {
 		t.provider = anomaly.NewDailyProvider(
 			anomaly.WithCache[*anomaly.DailyProvider](cache),
 			anomaly.WithKeyGenerator[*anomaly.DailyProvider](queryBuilder.NewKeyGenerator()),
 			anomaly.WithReader[*anomaly.DailyProvider](reader),
-			anomaly.WithFeatureLookup[*anomaly.DailyProvider](featureFlags),
 		)
 	} else if t.seasonality == anomaly.SeasonalityWeekly {
 		t.provider = anomaly.NewWeeklyProvider(
 			anomaly.WithCache[*anomaly.WeeklyProvider](cache),
 			anomaly.WithKeyGenerator[*anomaly.WeeklyProvider](queryBuilder.NewKeyGenerator()),
 			anomaly.WithReader[*anomaly.WeeklyProvider](reader),
-			anomaly.WithFeatureLookup[*anomaly.WeeklyProvider](featureFlags),
 		)
 	}
 	return &t, nil
