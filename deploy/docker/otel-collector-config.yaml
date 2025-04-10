@@ -1,4 +1,12 @@
 receivers:
+  awscloudwatch:
+    region: ap-southeast-1
+    logs:
+      poll_interval: 1m
+      groups:
+        autodiscover:
+          limit: 100
+          prefix: /ecs/
   otlp:
     protocols:
       grpc:
@@ -96,6 +104,6 @@ service:
       processors: [batch]
       exporters: [clickhousemetricswrite/prometheus, signozclickhousemetrics]
     logs:
-      receivers: [otlp]
+      receivers: [otlp, awscloudwatch]
       processors: [batch]
       exporters: [clickhouselogsexporter]
