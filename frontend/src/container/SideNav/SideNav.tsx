@@ -99,18 +99,10 @@ function SideNav(): JSX.Element {
 	const licenseStatus: string =
 		licenses?.licenses?.find((e: License) => e.isCurrent)?.status || '';
 
-<<<<<<< HEAD
 	// const isLicenseActive =
 	// 	licenseStatus?.toLocaleLowerCase() ===
 	// 	LICENSE_PLAN_STATUS.VALID.toLocaleLowerCase();
 	const isLicenseActive = true;
-=======
-	const isWorkspaceBlocked = trialInfo?.workSpaceBlock || false;
-
-	const isLicenseActive =
-		licenseStatus?.toLocaleLowerCase() ===
-		LICENSE_PLAN_STATUS.VALID.toLocaleLowerCase();
->>>>>>> 0138d757c8ac8125d105c9550cd8e7bb60880bce
 
 	const onClickSignozCloud = (): void => {
 		window.open(
@@ -205,10 +197,6 @@ function SideNav(): JSX.Element {
 	};
 
 	useEffect(() => {
-<<<<<<< HEAD
-		setLicenseTag('Enterprise');
-	}, [isCloudUserVal, isEnterprise]);
-=======
 		if (isCloudUser) {
 			setLicenseTag('Cloud');
 		} else if (isEnterpriseSelfHostedUser) {
@@ -224,7 +212,6 @@ function SideNav(): JSX.Element {
 		isCommunityEnterpriseUser,
 		isCommunityUser,
 	]);
->>>>>>> 0138d757c8ac8125d105c9550cd8e7bb60880bce
 
 	const [isCurrentOrgSettings] = useComponentPermission(
 		['current_org_settings'],
@@ -295,16 +282,6 @@ function SideNav(): JSX.Element {
 		let updatedUserManagementItems: UserManagementMenuItems[] = [
 			manageLicenseMenuItem,
 		];
-
-		const isApiMonitoringEnabled = featureFlags?.find(
-			(flag) => flag.name === FeatureKeys.THIRD_PARTY_API,
-		)?.active;
-
-		if (!isApiMonitoringEnabled) {
-			updatedMenuItems = updatedMenuItems.filter(
-				(item) => item.key !== ROUTES.API_MONITORING,
-			);
-		}
 
 		if (isCloudUser || isEnterpriseSelfHostedUser) {
 			const isOnboardingEnabled =
