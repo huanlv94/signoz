@@ -11,7 +11,7 @@ import getTimeString from 'lib/getTimeString';
 import { isEqual } from 'lodash-es';
 import isEmpty from 'lodash-es/isEmpty';
 import { useDashboard } from 'providers/Dashboard/Dashboard';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from 'react-query';
 import { useDispatch, useSelector } from 'react-redux';
 import { UpdateTimeInterval } from 'store/actions';
@@ -27,6 +27,7 @@ import { GridCardGraphProps } from './types';
 import { isDataAvailableByPanelType } from './utils';
 import WidgetGraphComponent from './WidgetGraphComponent';
 
+// eslint-disable-next-line sonarjs/cognitive-complexity
 function GridCardGraph({
 	widget,
 	headerMenuList = [MenuItemKeys.View],
@@ -47,6 +48,9 @@ function GridCardGraph({
 	start,
 	end,
 	analyticsEvent,
+	customTimeRange,
+	customOnRowClick,
+	customTimeRangeWindowForCoRelation,
 }: GridCardGraphProps): JSX.Element {
 	const dispatch = useDispatch();
 	const [errorMessage, setErrorMessage] = useState<string>();
@@ -130,6 +134,8 @@ function GridCardGraph({
 				variables: getDashboardVariables(variables),
 				fillGaps: widget.fillSpans,
 				formatForWeb: widget.panelTypes === PANEL_TYPES.TABLE,
+				start: customTimeRange?.startTime || start,
+				end: customTimeRange?.endTime || end,
 			};
 		}
 		updatedQuery.builder.queryData[0].pageSize = 10;
@@ -149,6 +155,8 @@ function GridCardGraph({
 					initialDataSource === DataSource.TRACES && widget.selectedTracesFields,
 			},
 			fillGaps: widget.fillSpans,
+			start: customTimeRange?.startTime || start,
+			end: customTimeRange?.endTime || end,
 		};
 	});
 
@@ -181,14 +189,26 @@ function GridCardGraph({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [updatedQuery]);
 
+	const isLogsQuery = useMemo(
+		() =>
+			requestData.query.builder.queryData.every(
+				(query) => query.dataSource === DataSource.LOGS,
+			),
+		[requestData.query],
+	);
+
 	const queryResponse = useGetQueryRange(
 		{
 			...requestData,
 			variables: getDashboardVariables(variables),
 			selectedTime: widget.timePreferance || 'GLOBAL_TIME',
-			globalSelectedInterval,
-			start,
-			end,
+			globalSelectedInterval:
+				widget.panelTypes === PANEL_TYPES.LIST && isLogsQuery
+					? 'custom'
+					: globalSelectedInterval,
+			start: customTimeRange?.startTime || start,
+			end: customTimeRange?.endTime || end,
+			originalGraphType: widget?.panelTypes,
 		},
 		version || DEFAULT_ENTITY_VERSION,
 		{
@@ -202,6 +222,9 @@ function GridCardGraph({
 				widget.timePreferance,
 				widget.fillSpans,
 				requestData,
+				...(customTimeRange && customTimeRange.startTime && customTimeRange.endTime
+					? [customTimeRange.startTime, customTimeRange.endTime]
+					: []),
 			],
 			retry(failureCount, error): boolean {
 				if (
@@ -279,6 +302,8 @@ function GridCardGraph({
 					onOpenTraceBtnClick={onOpenTraceBtnClick}
 					customSeries={customSeries}
 					customErrorMessage={isInternalServerError ? customErrorMessage : undefined}
+					customOnRowClick={customOnRowClick}
+					customTimeRangeWindowForCoRelation={customTimeRangeWindowForCoRelation}
 				/>
 			)}
 		</div>
@@ -293,6 +318,7 @@ GridCardGraph.defaultProps = {
 	headerMenuList: [MenuItemKeys.View],
 	version: 'v3',
 	analyticsEvent: undefined,
+	customTimeRangeWindowForCoRelation: undefined,
 };
 
 export default memo(GridCardGraph);

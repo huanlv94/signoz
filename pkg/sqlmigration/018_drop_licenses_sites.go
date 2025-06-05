@@ -36,16 +36,31 @@ func (migration *dropLicensesSites) Up(ctx context.Context, db *bun.DB) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
 
-	if _, err := tx.NewDropTable().IfExists().Table("sites").Exec(ctx); err != nil {
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if _, err := tx.
+		NewDropTable().
+		IfExists().
+		Table("sites").
+		Exec(ctx); err != nil {
 		return err
 	}
-	if _, err := tx.NewDropTable().IfExists().Table("licenses").Exec(ctx); err != nil {
+
+	if _, err := tx.
+		NewDropTable().
+		IfExists().
+		Table("licenses").
+		Exec(ctx); err != nil {
 		return err
 	}
 
-	_, err = migration.store.Dialect().RenameColumn(ctx, tx, "saved_views", "uuid", "id")
+	_, err = migration.
+		store.
+		Dialect().
+		RenameColumn(ctx, tx, "saved_views", "uuid", "id")
 	if err != nil {
 		return err
 	}

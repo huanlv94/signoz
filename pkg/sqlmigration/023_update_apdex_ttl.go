@@ -61,12 +61,9 @@ type newTTLStatus struct {
 }
 
 func NewUpdateApdexTtlFactory(sqlstore sqlstore.SQLStore) factory.ProviderFactory[SQLMigration, Config] {
-	return factory.
-		NewProviderFactory(
-			factory.MustNewName("update_apdex_ttl"),
-			func(ctx context.Context, ps factory.ProviderSettings, c Config) (SQLMigration, error) {
-				return newUpdateApdexTtl(ctx, ps, c, sqlstore)
-			})
+	return factory.NewProviderFactory(factory.MustNewName("update_apdex_ttl"), func(ctx context.Context, ps factory.ProviderSettings, c Config) (SQLMigration, error) {
+		return newUpdateApdexTtl(ctx, ps, c, sqlstore)
+	})
 }
 
 func newUpdateApdexTtl(_ context.Context, _ factory.ProviderSettings, _ Config, store sqlstore.SQLStore) (SQLMigration, error) {
@@ -74,8 +71,7 @@ func newUpdateApdexTtl(_ context.Context, _ factory.ProviderSettings, _ Config, 
 }
 
 func (migration *updateApdexTtl) Register(migrations *migrate.Migrations) error {
-	if err := migrations.
-		Register(migration.Up, migration.Down); err != nil {
+	if err := migrations.Register(migration.Up, migration.Down); err != nil {
 		return err
 	}
 
@@ -83,13 +79,14 @@ func (migration *updateApdexTtl) Register(migrations *migrate.Migrations) error 
 }
 
 func (migration *updateApdexTtl) Up(ctx context.Context, db *bun.DB) error {
-	tx, err := db.
-		BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	err = migration.
 		store.
@@ -161,8 +158,7 @@ func (migration *updateApdexTtl) Up(ctx context.Context, db *bun.DB) error {
 				}
 
 				if err == nil {
-					newTTLStatus := migration.
-						CopyExistingTTLStatusToNewTTLStatus(existingTTLStatus, orgID)
+					newTTLStatus := migration.CopyExistingTTLStatusToNewTTLStatus(existingTTLStatus, orgID)
 					_, err = tx.
 						NewInsert().
 						Model(&newTTLStatus).

@@ -3,14 +3,14 @@ package telemetrymetadata
 import (
 	"context"
 	"fmt"
-	"strings"
+	"log/slog"
 
 	"github.com/SigNoz/signoz/pkg/errors"
+	"github.com/SigNoz/signoz/pkg/querybuilder"
 	"github.com/SigNoz/signoz/pkg/telemetrystore"
 	qbtypes "github.com/SigNoz/signoz/pkg/types/querybuildertypes/querybuildertypesv5"
 	"github.com/SigNoz/signoz/pkg/types/telemetrytypes"
 	"github.com/huandu/go-sqlbuilder"
-	"go.uber.org/zap"
 )
 
 var (
@@ -22,52 +22,59 @@ var (
 )
 
 type telemetryMetaStore struct {
+	logger                 *slog.Logger
 	telemetrystore         telemetrystore.TelemetryStore
 	tracesDBName           string
 	tracesFieldsTblName    string
 	indexV3TblName         string
 	metricsDBName          string
 	metricsFieldsTblName   string
-	timeseries1WTblName    string
 	logsDBName             string
 	logsFieldsTblName      string
 	logsV2TblName          string
 	relatedMetadataDBName  string
 	relatedMetadataTblName string
 
+	fm               qbtypes.FieldMapper
 	conditionBuilder qbtypes.ConditionBuilder
 }
 
 func NewTelemetryMetaStore(
+	logger *slog.Logger,
 	telemetrystore telemetrystore.TelemetryStore,
 	tracesDBName string,
 	tracesFieldsTblName string,
 	indexV3TblName string,
 	metricsDBName string,
 	metricsFieldsTblName string,
-	timeseries1WTblName string,
 	logsDBName string,
 	logsV2TblName string,
 	logsFieldsTblName string,
 	relatedMetadataDBName string,
 	relatedMetadataTblName string,
-) (telemetrytypes.MetadataStore, error) {
-	return &telemetryMetaStore{
+) telemetrytypes.MetadataStore {
+
+	t := &telemetryMetaStore{
 		telemetrystore:         telemetrystore,
 		tracesDBName:           tracesDBName,
 		tracesFieldsTblName:    tracesFieldsTblName,
 		indexV3TblName:         indexV3TblName,
 		metricsDBName:          metricsDBName,
 		metricsFieldsTblName:   metricsFieldsTblName,
-		timeseries1WTblName:    timeseries1WTblName,
 		logsDBName:             logsDBName,
 		logsV2TblName:          logsV2TblName,
 		logsFieldsTblName:      logsFieldsTblName,
 		relatedMetadataDBName:  relatedMetadataDBName,
 		relatedMetadataTblName: relatedMetadataTblName,
+	}
 
-		conditionBuilder: NewConditionBuilder(),
-	}, nil
+	fm := NewFieldMapper()
+	conditionBuilder := NewConditionBuilder(fm)
+
+	t.fm = fm
+	t.conditionBuilder = conditionBuilder
+
+	return t
 }
 
 // tracesTblStatementToFieldKeys returns materialised attribute/resource/scope keys from the traces table
@@ -79,12 +86,20 @@ func (t *telemetryMetaStore) tracesTblStatementToFieldKeys(ctx context.Context) 
 		return nil, errors.Wrapf(err, errors.TypeInternal, errors.CodeInternal, ErrFailedToGetTblStatement.Error())
 	}
 
-	return ExtractFieldKeysFromTblStatement(statements[0].Statement)
+	materialisedKeys, err := ExtractFieldKeysFromTblStatement(statements[0].Statement)
+	if err != nil {
+		return nil, errors.Wrapf(err, errors.TypeInternal, errors.CodeInternal, ErrFailedToGetTracesKeys.Error())
+	}
+
+	for idx := range materialisedKeys {
+		materialisedKeys[idx].Signal = telemetrytypes.SignalTraces
+	}
+
+	return materialisedKeys, nil
 }
 
 // getTracesKeys returns the keys from the spans that match the field selection criteria
 func (t *telemetryMetaStore) getTracesKeys(ctx context.Context, fieldKeySelectors []*telemetrytypes.FieldKeySelector) ([]*telemetrytypes.TelemetryFieldKey, error) {
-
 	if len(fieldKeySelectors) == 0 {
 		return nil, nil
 	}
@@ -175,6 +190,7 @@ func (t *telemetryMetaStore) getTracesKeys(ctx context.Context, fieldKeySelector
 		if !ok {
 			key = &telemetrytypes.TelemetryFieldKey{
 				Name:          name,
+				Signal:        telemetrytypes.SignalTraces,
 				FieldContext:  fieldContext,
 				FieldDataType: fieldDataType,
 			}
@@ -199,7 +215,16 @@ func (t *telemetryMetaStore) logsTblStatementToFieldKeys(ctx context.Context) ([
 		return nil, errors.Wrapf(err, errors.TypeInternal, errors.CodeInternal, ErrFailedToGetTblStatement.Error())
 	}
 
-	return ExtractFieldKeysFromTblStatement(statements[0].Statement)
+	materialisedKeys, err := ExtractFieldKeysFromTblStatement(statements[0].Statement)
+	if err != nil {
+		return nil, errors.Wrapf(err, errors.TypeInternal, errors.CodeInternal, ErrFailedToGetLogsKeys.Error())
+	}
+
+	for idx := range materialisedKeys {
+		materialisedKeys[idx].Signal = telemetrytypes.SignalLogs
+	}
+
+	return materialisedKeys, nil
 }
 
 // getLogsKeys returns the keys from the spans that match the field selection criteria
@@ -293,6 +318,7 @@ func (t *telemetryMetaStore) getLogsKeys(ctx context.Context, fieldKeySelectors 
 		if !ok {
 			key = &telemetrytypes.TelemetryFieldKey{
 				Name:          name,
+				Signal:        telemetrytypes.SignalLogs,
 				FieldContext:  fieldContext,
 				FieldDataType: fieldDataType,
 			}
@@ -309,52 +335,60 @@ func (t *telemetryMetaStore) getLogsKeys(ctx context.Context, fieldKeySelectors 
 }
 
 // getMetricsKeys returns the keys from the metrics that match the field selection criteria
-// TODO(srikanthccv): update the implementation after the dot metrics migration is done
 func (t *telemetryMetaStore) getMetricsKeys(ctx context.Context, fieldKeySelectors []*telemetrytypes.FieldKeySelector) ([]*telemetrytypes.TelemetryFieldKey, error) {
 	if len(fieldKeySelectors) == 0 {
 		return nil, nil
 	}
 
-	var whereClause, innerWhereClause string
+	sb := sqlbuilder.
+		Select("attr_name as name", "attr_type as field_context", "attr_datatype as field_data_type", `
+			CASE
+				WHEN attr_type = 'resource' THEN 1
+				WHEN attr_type = 'scope' THEN 2
+				WHEN attr_type = 'point' THEN 3
+				ELSE 4
+			END as priority`).
+		From(t.metricsDBName + "." + t.metricsFieldsTblName)
+
 	var limit int
-	args := []any{}
 
+	conds := []string{}
 	for _, fieldKeySelector := range fieldKeySelectors {
-		if fieldKeySelector.MetricContext != nil {
-			innerWhereClause += "metric_name IN ? AND"
-			args = append(args, fieldKeySelector.MetricContext.MetricName)
-		}
-	}
-	innerWhereClause += " __normalized = true"
-
-	for idx, fieldKeySelector := range fieldKeySelectors {
+		fieldConds := []string{}
 		if fieldKeySelector.SelectorMatchType == telemetrytypes.FieldSelectorMatchTypeExact {
-			whereClause += "(distinctTagKey = ? AND distinctTagKey NOT LIKE '\\_\\_%%')"
-			args = append(args, fieldKeySelector.Name)
+			fieldConds = append(fieldConds, sb.E("attr_name", fieldKeySelector.Name))
 		} else {
-			whereClause += "(distinctTagKey ILIKE ? AND distinctTagKey NOT LIKE '\\_\\_%%')"
-			args = append(args, fmt.Sprintf("%%%s%%", fieldKeySelector.Name))
+			fieldConds = append(fieldConds, sb.Like("attr_name", "%"+fieldKeySelector.Name+"%"))
 		}
-		if idx != len(fieldKeySelectors)-1 {
-			whereClause += " OR "
+
+		if fieldKeySelector.FieldContext != telemetrytypes.FieldContextUnspecified {
+			fieldConds = append(fieldConds, sb.E("attr_type", fieldKeySelector.FieldContext.TagType()))
 		}
+
+		if fieldKeySelector.FieldDataType != telemetrytypes.FieldDataTypeUnspecified {
+			fieldConds = append(fieldConds, sb.E("attr_datatype", fieldKeySelector.FieldDataType.TagDataType()))
+		}
+
+		if fieldKeySelector.MetricContext != nil {
+			fieldConds = append(fieldConds, sb.E("metric_name", fieldKeySelector.MetricContext.MetricName))
+		}
+
+		conds = append(conds, sb.And(fieldConds...))
 		limit += fieldKeySelector.Limit
 	}
-	args = append(args, limit)
+	sb.Where(sb.Or(conds...))
 
-	query := fmt.Sprintf(`
-		SELECT
-			arrayJoin(tagKeys) AS distinctTagKey
-		FROM (
-			SELECT JSONExtractKeys(labels) AS tagKeys
-			FROM %s.%s
-			WHERE `+innerWhereClause+`
-			GROUP BY tagKeys
-		)
-		WHERE `+whereClause+`
-		GROUP BY distinctTagKey
-		LIMIT ?
-	`, t.metricsDBName, t.timeseries1WTblName)
+	if limit == 0 {
+		limit = 1000
+	}
+
+	mainSb := sqlbuilder.Select("name", "field_context", "field_data_type", "max(priority) as priority")
+	mainSb.From(mainSb.BuilderAs(sb, "sub_query"))
+	mainSb.GroupBy("name", "field_context", "field_data_type")
+	mainSb.OrderBy("priority")
+	mainSb.Limit(limit)
+
+	query, args := mainSb.BuildWithFlavor(sqlbuilder.ClickHouse)
 
 	rows, err := t.telemetrystore.ClickhouseDB().Query(ctx, query, args...)
 	if err != nil {
@@ -365,16 +399,19 @@ func (t *telemetryMetaStore) getMetricsKeys(ctx context.Context, fieldKeySelecto
 	keys := []*telemetrytypes.TelemetryFieldKey{}
 	for rows.Next() {
 		var name string
-		err = rows.Scan(&name)
+		var fieldContext telemetrytypes.FieldContext
+		var fieldDataType telemetrytypes.FieldDataType
+		var priority uint8
+		err = rows.Scan(&name, &fieldContext, &fieldDataType, &priority)
 		if err != nil {
 			return nil, errors.Wrapf(err, errors.TypeInternal, errors.CodeInternal, ErrFailedToGetMetricsKeys.Error())
 		}
-		key := &telemetrytypes.TelemetryFieldKey{
+		keys = append(keys, &telemetrytypes.TelemetryFieldKey{
 			Name:          name,
-			FieldContext:  telemetrytypes.FieldContextAttribute,
-			FieldDataType: telemetrytypes.FieldDataTypeString,
-		}
-		keys = append(keys, key)
+			Signal:        telemetrytypes.SignalMetrics,
+			FieldContext:  fieldContext,
+			FieldDataType: fieldDataType,
+		})
 	}
 
 	if rows.Err() != nil {
@@ -387,30 +424,36 @@ func (t *telemetryMetaStore) getMetricsKeys(ctx context.Context, fieldKeySelecto
 func (t *telemetryMetaStore) GetKeys(ctx context.Context, fieldKeySelector *telemetrytypes.FieldKeySelector) (map[string][]*telemetrytypes.TelemetryFieldKey, error) {
 	var keys []*telemetrytypes.TelemetryFieldKey
 	var err error
+	selectors := []*telemetrytypes.FieldKeySelector{}
+
+	if fieldKeySelector != nil {
+		selectors = []*telemetrytypes.FieldKeySelector{fieldKeySelector}
+	}
+
 	switch fieldKeySelector.Signal {
 	case telemetrytypes.SignalTraces:
-		keys, err = t.getTracesKeys(ctx, []*telemetrytypes.FieldKeySelector{fieldKeySelector})
+		keys, err = t.getTracesKeys(ctx, selectors)
 	case telemetrytypes.SignalLogs:
-		keys, err = t.getLogsKeys(ctx, []*telemetrytypes.FieldKeySelector{fieldKeySelector})
+		keys, err = t.getLogsKeys(ctx, selectors)
 	case telemetrytypes.SignalMetrics:
-		keys, err = t.getMetricsKeys(ctx, []*telemetrytypes.FieldKeySelector{fieldKeySelector})
+		keys, err = t.getMetricsKeys(ctx, selectors)
 	case telemetrytypes.SignalUnspecified:
 		// get traces keys
-		tracesKeys, err := t.getTracesKeys(ctx, []*telemetrytypes.FieldKeySelector{fieldKeySelector})
+		tracesKeys, err := t.getTracesKeys(ctx, selectors)
 		if err != nil {
 			return nil, err
 		}
 		keys = append(keys, tracesKeys...)
 
 		// get logs keys
-		logsKeys, err := t.getLogsKeys(ctx, []*telemetrytypes.FieldKeySelector{fieldKeySelector})
+		logsKeys, err := t.getLogsKeys(ctx, selectors)
 		if err != nil {
 			return nil, err
 		}
 		keys = append(keys, logsKeys...)
 
 		// get metrics keys
-		metricsKeys, err := t.getMetricsKeys(ctx, []*telemetrytypes.FieldKeySelector{fieldKeySelector})
+		metricsKeys, err := t.getMetricsKeys(ctx, selectors)
 		if err != nil {
 			return nil, err
 		}
@@ -486,42 +529,80 @@ func (t *telemetryMetaStore) GetKey(ctx context.Context, fieldKeySelector *telem
 
 func (t *telemetryMetaStore) getRelatedValues(ctx context.Context, fieldValueSelector *telemetrytypes.FieldValueSelector) ([]string, error) {
 
-	args := []any{}
-
-	var andConditions []string
-
-	andConditions = append(andConditions, `unix_milli >= ?`)
-	args = append(args, fieldValueSelector.StartUnixMilli)
-
-	andConditions = append(andConditions, `unix_milli <= ?`)
-	args = append(args, fieldValueSelector.EndUnixMilli)
-
-	if len(fieldValueSelector.ExistingQuery) != 0 {
-		// TODO(srikanthccv): add the existing query to the where clause
+	// nothing to return as "related" value if there is nothing to filter on
+	if fieldValueSelector.ExistingQuery == "" {
+		return nil, nil
 	}
-	whereClause := strings.Join(andConditions, " AND ")
 
-	key := telemetrytypes.TelemetryFieldKey{
+	key := &telemetrytypes.TelemetryFieldKey{
 		Name:          fieldValueSelector.Name,
 		Signal:        fieldValueSelector.Signal,
 		FieldContext:  fieldValueSelector.FieldContext,
 		FieldDataType: fieldValueSelector.FieldDataType,
 	}
 
-	// TODO(srikanthccv): add the select column
-	selectColumn, _ := t.conditionBuilder.GetTableFieldName(ctx, &key)
+	selectColumn, err := t.fm.FieldFor(ctx, key)
 
-	args = append(args, fieldValueSelector.Limit)
-	filterSubQuery := fmt.Sprintf(
-		"SELECT DISTINCT %s FROM %s.%s WHERE %s LIMIT ?",
-		selectColumn,
-		t.relatedMetadataDBName,
-		t.relatedMetadataTblName,
-		whereClause,
-	)
-	zap.L().Debug("filterSubQuery for related values", zap.String("query", filterSubQuery), zap.Any("args", args))
+	if err != nil {
+		// we don't have a explicit column to select from the related metadata table
+		// so we will select either from resource_attributes or attributes table
+		// in that order
+		resourceColumn, _ := t.fm.FieldFor(ctx, &telemetrytypes.TelemetryFieldKey{
+			Name:          key.Name,
+			FieldContext:  telemetrytypes.FieldContextResource,
+			FieldDataType: telemetrytypes.FieldDataTypeString,
+		})
+		attributeColumn, _ := t.fm.FieldFor(ctx, &telemetrytypes.TelemetryFieldKey{
+			Name:          key.Name,
+			FieldContext:  telemetrytypes.FieldContextAttribute,
+			FieldDataType: telemetrytypes.FieldDataTypeString,
+		})
+		selectColumn = fmt.Sprintf("if(notEmpty(%s), %s, %s)", resourceColumn, resourceColumn, attributeColumn)
+	}
 
-	rows, err := t.telemetrystore.ClickhouseDB().Query(ctx, filterSubQuery, args...)
+	sb := sqlbuilder.Select("DISTINCT " + selectColumn).From(t.relatedMetadataDBName + "." + t.relatedMetadataTblName)
+
+	if len(fieldValueSelector.ExistingQuery) != 0 {
+		keySelectors := querybuilder.QueryStringToKeysSelectors(fieldValueSelector.ExistingQuery)
+		for _, keySelector := range keySelectors {
+			keySelector.Signal = fieldValueSelector.Signal
+		}
+		keys, err := t.GetKeysMulti(ctx, keySelectors)
+		if err != nil {
+			return nil, err
+		}
+
+		whereClause, _, err := querybuilder.PrepareWhereClause(fieldValueSelector.ExistingQuery, querybuilder.FilterExprVisitorOpts{
+			FieldMapper:      t.fm,
+			ConditionBuilder: t.conditionBuilder,
+			FieldKeys:        keys,
+		})
+		if err == nil {
+			sb.AddWhereClause(whereClause)
+		} else {
+			t.logger.WarnContext(ctx, "error parsing existing query for related values", "error", err)
+		}
+	}
+
+	if fieldValueSelector.StartUnixMilli != 0 {
+		sb.Where(sb.GE("unix_milli", fieldValueSelector.StartUnixMilli))
+	}
+
+	if fieldValueSelector.EndUnixMilli != 0 {
+		sb.Where(sb.LE("unix_milli", fieldValueSelector.EndUnixMilli))
+	}
+
+	if fieldValueSelector.Limit != 0 {
+		sb.Limit(fieldValueSelector.Limit)
+	} else {
+		sb.Limit(50)
+	}
+
+	query, args := sb.BuildWithFlavor(sqlbuilder.ClickHouse)
+
+	t.logger.DebugContext(ctx, "query for related values", "query", query, "args", args)
+
+	rows, err := t.telemetrystore.ClickhouseDB().Query(ctx, query, args...)
 	if err != nil {
 		return nil, ErrFailedToGetRelatedValues
 	}
@@ -571,6 +652,12 @@ func (t *telemetryMetaStore) getSpanFieldValues(ctx context.Context, fieldValueS
 		} else if fieldValueSelector.FieldDataType == telemetrytypes.FieldDataTypeNumber {
 			sb.Where(sb.IsNotNull("number_value"))
 			sb.Where(sb.Like("toString(number_value)", "%"+fieldValueSelector.Value+"%"))
+		} else if fieldValueSelector.FieldDataType == telemetrytypes.FieldDataTypeUnspecified {
+			// or b/w string and number
+			sb.Where(sb.Or(
+				sb.Like("string_value", "%"+fieldValueSelector.Value+"%"),
+				sb.Like("toString(number_value)", "%"+fieldValueSelector.Value+"%"),
+			))
 		}
 	}
 
@@ -632,6 +719,12 @@ func (t *telemetryMetaStore) getLogFieldValues(ctx context.Context, fieldValueSe
 		} else if fieldValueSelector.FieldDataType == telemetrytypes.FieldDataTypeNumber {
 			sb.Where(sb.IsNotNull("number_value"))
 			sb.Where(sb.Like("toString(number_value)", "%"+fieldValueSelector.Value+"%"))
+		} else if fieldValueSelector.FieldDataType == telemetrytypes.FieldDataTypeUnspecified {
+			// or b/w string and number
+			sb.Where(sb.Or(
+				sb.Like("string_value", "%"+fieldValueSelector.Value+"%"),
+				sb.Like("toString(number_value)", "%"+fieldValueSelector.Value+"%"),
+			))
 		}
 	}
 
@@ -668,13 +761,92 @@ func (t *telemetryMetaStore) getLogFieldValues(ctx context.Context, fieldValueSe
 	return values, nil
 }
 
-func (t *telemetryMetaStore) getMetricFieldValues(_ context.Context, fieldValueSelector *telemetrytypes.FieldValueSelector) (*telemetrytypes.TelemetryFieldValues, error) {
-	// TODO(srikanthccv): implement this. use new tables?
-	return nil, nil
+func (t *telemetryMetaStore) getMetricFieldValues(ctx context.Context, fieldValueSelector *telemetrytypes.FieldValueSelector) (*telemetrytypes.TelemetryFieldValues, error) {
+	sb := sqlbuilder.
+		Select("DISTINCT attr_string_value").
+		From(t.metricsDBName + "." + t.metricsFieldsTblName)
+
+	if fieldValueSelector.Name != "" {
+		sb.Where(sb.E("attr_name", fieldValueSelector.Name))
+	}
+
+	if fieldValueSelector.FieldContext != telemetrytypes.FieldContextUnspecified {
+		sb.Where(sb.E("attr_type", fieldValueSelector.FieldContext.TagType()))
+	}
+
+	if fieldValueSelector.FieldDataType != telemetrytypes.FieldDataTypeUnspecified {
+		sb.Where(sb.E("attr_datatype", fieldValueSelector.FieldDataType.TagDataType()))
+	}
+
+	if fieldValueSelector.MetricContext != nil {
+		sb.Where(sb.E("metric_name", fieldValueSelector.MetricContext.MetricName))
+	}
+
+	if fieldValueSelector.StartUnixMilli > 0 {
+		sb.Where(sb.GE("last_reported_unix_milli", fieldValueSelector.StartUnixMilli))
+	}
+
+	if fieldValueSelector.EndUnixMilli > 0 {
+		sb.Where(sb.LE("first_reported_unix_milli", fieldValueSelector.EndUnixMilli))
+	}
+
+	if fieldValueSelector.Value != "" {
+		if fieldValueSelector.SelectorMatchType == telemetrytypes.FieldSelectorMatchTypeExact {
+			sb.Where(sb.E("attr_string_value", fieldValueSelector.Value))
+		} else {
+			sb.Where(sb.Like("attr_string_value", "%"+fieldValueSelector.Value+"%"))
+		}
+	}
+
+	if fieldValueSelector.Limit > 0 {
+		sb.Limit(fieldValueSelector.Limit)
+	} else {
+		sb.Limit(50)
+	}
+
+	query, args := sb.BuildWithFlavor(sqlbuilder.ClickHouse)
+
+	rows, err := t.telemetrystore.ClickhouseDB().Query(ctx, query, args...)
+	if err != nil {
+		return nil, errors.Wrapf(err, errors.TypeInternal, errors.CodeInternal, ErrFailedToGetMetricsKeys.Error())
+	}
+	defer rows.Close()
+
+	values := &telemetrytypes.TelemetryFieldValues{}
+	for rows.Next() {
+		var stringValue string
+		if err := rows.Scan(&stringValue); err != nil {
+			return nil, errors.Wrapf(err, errors.TypeInternal, errors.CodeInternal, ErrFailedToGetMetricsKeys.Error())
+		}
+		values.StringValues = append(values.StringValues, stringValue)
+	}
+	return values, nil
+}
+
+func populateAllUnspecifiedValues(allUnspecifiedValues *telemetrytypes.TelemetryFieldValues, mapOfValues map[any]bool, mapOfRelatedValues map[any]bool, values *telemetrytypes.TelemetryFieldValues) {
+	for _, value := range values.StringValues {
+		if _, ok := mapOfValues[value]; !ok {
+			mapOfValues[value] = true
+			allUnspecifiedValues.StringValues = append(allUnspecifiedValues.StringValues, value)
+		}
+	}
+	for _, value := range values.NumberValues {
+		if _, ok := mapOfValues[value]; !ok {
+			mapOfValues[value] = true
+			allUnspecifiedValues.NumberValues = append(allUnspecifiedValues.NumberValues, value)
+		}
+	}
+
+	for _, value := range values.RelatedValues {
+		if _, ok := mapOfRelatedValues[value]; !ok {
+			mapOfRelatedValues[value] = true
+			allUnspecifiedValues.RelatedValues = append(allUnspecifiedValues.RelatedValues, value)
+		}
+	}
 }
 
 func (t *telemetryMetaStore) GetAllValues(ctx context.Context, fieldValueSelector *telemetrytypes.FieldValueSelector) (*telemetrytypes.TelemetryFieldValues, error) {
-	var values *telemetrytypes.TelemetryFieldValues
+	values := &telemetrytypes.TelemetryFieldValues{}
 	var err error
 	switch fieldValueSelector.Signal {
 	case telemetrytypes.SignalTraces:
@@ -683,6 +855,23 @@ func (t *telemetryMetaStore) GetAllValues(ctx context.Context, fieldValueSelecto
 		values, err = t.getLogFieldValues(ctx, fieldValueSelector)
 	case telemetrytypes.SignalMetrics:
 		values, err = t.getMetricFieldValues(ctx, fieldValueSelector)
+	case telemetrytypes.SignalUnspecified:
+		mapOfValues := make(map[any]bool)
+		mapOfRelatedValues := make(map[any]bool)
+		allUnspecifiedValues := &telemetrytypes.TelemetryFieldValues{}
+		tracesValues, err := t.getSpanFieldValues(ctx, fieldValueSelector)
+		if err == nil {
+			populateAllUnspecifiedValues(allUnspecifiedValues, mapOfValues, mapOfRelatedValues, tracesValues)
+		}
+		logsValues, err := t.getLogFieldValues(ctx, fieldValueSelector)
+		if err == nil {
+			populateAllUnspecifiedValues(allUnspecifiedValues, mapOfValues, mapOfRelatedValues, logsValues)
+		}
+		metricsValues, err := t.getMetricFieldValues(ctx, fieldValueSelector)
+		if err == nil {
+			populateAllUnspecifiedValues(allUnspecifiedValues, mapOfValues, mapOfRelatedValues, metricsValues)
+		}
+		values = allUnspecifiedValues
 	}
 	if err != nil {
 		return nil, err

@@ -25,10 +25,10 @@ const styleLoader = 'style-loader';
 const plugins = [
 	new HtmlWebpackPlugin({
 		template: 'src/index.html.ejs',
-		INTERCOM_APP_ID: process.env.INTERCOM_APP_ID,
-		CUSTOMERIO_SITE_ID: process.env.CUSTOMERIO_SITE_ID,
-		CUSTOMERIO_ID: process.env.CUSTOMERIO_ID,
+		PYLON_APP_ID: process.env.PYLON_APP_ID,
+		APPCUES_APP_ID: process.env.APPCUES_APP_ID,
 		POSTHOG_KEY: process.env.POSTHOG_KEY,
+		USERPILOT_KEY: process.env.USERPILOT_KEY,
 		SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
 		SENTRY_ORG: process.env.SENTRY_ORG,
 		SENTRY_PROJECT_ID: process.env.SENTRY_PROJECT_ID,
@@ -49,10 +49,10 @@ const plugins = [
 		'process.env': JSON.stringify({
 			FRONTEND_API_ENDPOINT: process.env.FRONTEND_API_ENDPOINT,
 			WEBSOCKET_API_ENDPOINT: process.env.WEBSOCKET_API_ENDPOINT,
-			INTERCOM_APP_ID: process.env.INTERCOM_APP_ID,
-			CUSTOMERIO_SITE_ID: process.env.CUSTOMERIO_SITE_ID,
-			CUSTOMERIO_ID: process.env.CUSTOMERIO_ID,
+			PYLON_APP_ID: process.env.PYLON_APP_ID,
+			APPCUES_APP_ID: process.env.APPCUES_APP_ID,
 			POSTHOG_KEY: process.env.POSTHOG_KEY,
+			USERPILOT_KEY: process.env.USERPILOT_KEY,
 			SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,
 			SENTRY_ORG: process.env.SENTRY_ORG,
 			SENTRY_PROJECT_ID: process.env.SENTRY_PROJECT_ID,

@@ -7,11 +7,11 @@ import (
 	"strings"
 
 	"github.com/SigNoz/signoz/pkg/query-service/model"
-	"github.com/SigNoz/signoz/pkg/query-service/rules"
 	"github.com/SigNoz/signoz/pkg/query-service/utils"
 	"github.com/SigNoz/signoz/pkg/sqlstore"
 	"github.com/SigNoz/signoz/pkg/types"
 	"github.com/SigNoz/signoz/pkg/types/pipelinetypes"
+	ruletypes "github.com/SigNoz/signoz/pkg/types/ruletypes"
 	"github.com/SigNoz/signoz/pkg/valuer"
 )
 
@@ -34,7 +34,7 @@ type IntegrationAssets struct {
 	Logs       LogsAssets            `json:"logs"`
 	Dashboards []types.DashboardData `json:"dashboards"`
 
-	Alerts []rules.PostableRule `json:"alerts"`
+	Alerts []ruletypes.PostableRule `json:"alerts"`
 }
 
 type LogsAssets struct {
@@ -355,13 +355,13 @@ func (m *Manager) GetInstalledIntegrationDashboardById(
 func (m *Manager) GetDashboardsForInstalledIntegrations(
 	ctx context.Context,
 	orgId string,
-) ([]types.Dashboard, *model.ApiError) {
+) ([]*types.Dashboard, *model.ApiError) {
 	installedIntegrations, apiErr := m.getInstalledIntegrations(ctx, orgId)
 	if apiErr != nil {
 		return nil, apiErr
 	}
 
-	result := []types.Dashboard{}
+	result := []*types.Dashboard{}
 
 	for _, ii := range installedIntegrations {
 		for _, dd := range ii.Assets.Dashboards {
@@ -369,7 +369,7 @@ func (m *Manager) GetDashboardsForInstalledIntegrations(
 				if dashboardId, ok := dId.(string); ok {
 					isLocked := 1
 					author := "integration"
-					result = append(result, types.Dashboard{
+					result = append(result, &types.Dashboard{
 						UUID:   m.dashboardUuid(ii.IntegrationSummary.Id, dashboardId),
 						Locked: &isLocked,
 						Data:   dd,

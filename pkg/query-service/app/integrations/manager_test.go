@@ -4,6 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/SigNoz/signoz/pkg/emailing"
+	"github.com/SigNoz/signoz/pkg/emailing/noopemailing"
+	"github.com/SigNoz/signoz/pkg/instrumentation/instrumentationtest"
+	"github.com/SigNoz/signoz/pkg/modules/organization/implorganization"
+	"github.com/SigNoz/signoz/pkg/modules/user/impluser"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/require"
 )
@@ -11,10 +16,14 @@ import (
 func TestIntegrationLifecycle(t *testing.T) {
 	require := require.New(t)
 
-	mgr := NewTestIntegrationsManager(t)
+	mgr, store := NewTestIntegrationsManager(t)
 	ctx := context.Background()
 
-	user, apiErr := createTestUser()
+	organizationModule := implorganization.NewModule(implorganization.NewStore(store))
+	providerSettings := instrumentationtest.New().ToProviderSettings()
+	emailing, _ := noopemailing.New(context.Background(), providerSettings, emailing.Config{})
+	userModule := impluser.NewModule(impluser.NewStore(store, providerSettings), nil, emailing, providerSettings)
+	user, apiErr := createTestUser(organizationModule, userModule)
 	if apiErr != nil {
 		t.Fatalf("could not create test user: %v", apiErr)
 	}

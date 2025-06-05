@@ -2,7 +2,7 @@
 import './Home.styles.scss';
 
 import { Color } from '@signozhq/design-tokens';
-import { Button, Popover } from 'antd';
+import { Alert, Button, Popover } from 'antd';
 import logEvent from 'api/common/logEvent';
 import { HostListPayload } from 'api/infraMonitoring/getHostLists';
 import { K8sPodsListPayload } from 'api/infraMonitoring/getK8sPodsList';
@@ -10,6 +10,7 @@ import getAllUserPreferences from 'api/preferences/getAllUserPreference';
 import updateUserPreferenceAPI from 'api/preferences/updateUserPreference';
 import Header from 'components/Header/Header';
 import { DEFAULT_ENTITY_VERSION } from 'constants/app';
+import { LOCALSTORAGE } from 'constants/localStorage';
 import { initialQueriesMap, PANEL_TYPES } from 'constants/queryBuilder';
 import { REACT_QUERY_KEY } from 'constants/reactQueryKeys';
 import ROUTES from 'constants/routes';
@@ -17,9 +18,10 @@ import { getHostListsQuery } from 'container/InfraMonitoringHosts/utils';
 import { useGetHostList } from 'hooks/infraMonitoring/useGetHostList';
 import { useGetK8sPodsList } from 'hooks/infraMonitoring/useGetK8sPodsList';
 import { useGetQueryRange } from 'hooks/queryBuilder/useGetQueryRange';
+import { useGetTenantLicense } from 'hooks/useGetTenantLicense';
 import history from 'lib/history';
 import cloneDeep from 'lodash-es/cloneDeep';
-import { CompassIcon, DotIcon, HomeIcon, Plus, Wrench } from 'lucide-react';
+import { CompassIcon, DotIcon, HomeIcon, Plus, Wrench, X } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 import * as motion from 'motion/react-client';
 import Card from 'periscope/components/Card/Card';
@@ -51,6 +53,8 @@ export default function Home(): JSX.Element {
 	const [updatingUserPreferences, setUpdatingUserPreferences] = useState(false);
 	const [loadingUserPreferences, setLoadingUserPreferences] = useState(true);
 
+	const { isCommunityUser, isCommunityEnterpriseUser } = useGetTenantLicense();
+
 	const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>(
 		defaultChecklistItemsState,
 	);
@@ -58,6 +62,13 @@ export default function Home(): JSX.Element {
 	const [isWelcomeChecklistSkipped, setIsWelcomeChecklistSkipped] = useState(
 		false,
 	);
+
+	const [isBannerDismissed, setIsBannerDismissed] = useState(false);
+
+	useEffect(() => {
+		const bannerDismissed = localStorage.getItem(LOCALSTORAGE.BANNER_DISMISSED);
+		setIsBannerDismissed(bannerDismissed === 'true');
+	}, []);
 
 	useEffect(() => {
 		const now = new Date();
@@ -290,13 +301,46 @@ export default function Home(): JSX.Element {
 		}
 	}, [hostData, k8sPodsData, handleUpdateChecklistDoneItem]);
 
+	const { isCloudUser, isEnterpriseSelfHostedUser } = useGetTenantLicense();
+
 	useEffect(() => {
 		logEvent('Homepage: Visited', {});
 	}, []);
 
+	const hideBanner = (): void => {
+		localStorage.setItem(LOCALSTORAGE.BANNER_DISMISSED, 'true');
+		setIsBannerDismissed(true);
+	};
+
+	const showBanner = useMemo(
+		() => !isBannerDismissed && (isCommunityUser || isCommunityEnterpriseUser),
+		[isBannerDismissed, isCommunityUser, isCommunityEnterpriseUser],
+	);
+
 	return (
 		<div className="home-container">
 			<div className="sticky-header">
+				{showBanner && (
+					<div className="home-container-banner">
+						<div className="home-container-banner-content">
+							Big News: SigNoz Community Edition now available with SSO (Google OAuth)
+							and API keys -
+							<a
+								href="https://signoz.io/blog/open-source-signoz-now-available-with-sso-and-api-keys/"
+								target="_blank"
+								rel="noreferrer"
+								className="home-container-banner-link"
+							>
+								<i>read more</i>
+							</a>
+						</div>
+
+						<div className="home-container-banner-close">
+							<X size={16} onClick={hideBanner} />
+						</div>
+					</div>
+				)}
+
 				<Header
 					leftComponent={
 						<div className="home-header-left">
@@ -642,8 +686,34 @@ export default function Home(): JSX.Element {
 						</>
 					)}
 				</div>
-
 				<div className="home-right-content">
+					{(isCloudUser || isEnterpriseSelfHostedUser) && (
+						<div className="home-notifications-container">
+							<div className="notification">
+								<Alert
+									message={
+										<>
+											We&apos;re updating our metric ingestion processing pipeline.
+											Currently, metric names and labels are normalized to replace dots and
+											other special characters with underscores (_). This restriction will
+											soon be removed. Learn more{' '}
+											<a
+												href="https://signoz.io/guides/metrics-migration-cloud-users"
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												here
+											</a>
+											.
+										</>
+									}
+									type="warning"
+									showIcon
+								/>
+							</div>
+						</div>
+					)}
+
 					{!isWelcomeChecklistSkipped && !loadingUserPreferences && (
 						<AnimatePresence initial={false}>
 							<Card className="checklist-card">

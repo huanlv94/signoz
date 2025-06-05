@@ -23,6 +23,14 @@ var (
 	FieldDataTypeNumber      = FieldDataType{valuer.NewString("number")}
 	FieldDataTypeUnspecified = FieldDataType{valuer.NewString("")}
 
+	FieldDataTypeArrayString  = FieldDataType{valuer.NewString("[]string")}
+	FieldDataTypeArrayFloat64 = FieldDataType{valuer.NewString("[]float64")}
+	FieldDataTypeArrayBool    = FieldDataType{valuer.NewString("[]bool")}
+
+	// int64 and number are synonyms for float64
+	FieldDataTypeArrayInt64  = FieldDataType{valuer.NewString("[]int64")}
+	FieldDataTypeArrayNumber = FieldDataType{valuer.NewString("[]number")}
+
 	// Map string representations to FieldDataType values
 	// We want to handle all the possible string representations of the data types.
 	// Even if the user uses some non-standard representation, we want to be able to
@@ -30,6 +38,7 @@ var (
 	fieldDataTypes = map[string]FieldDataType{
 		// String types
 		"string": FieldDataTypeString,
+		"str":    FieldDataTypeString,
 
 		// Boolean types
 		"bool": FieldDataTypeBool,
@@ -53,8 +62,42 @@ var (
 		"double":  FieldDataTypeNumber,
 		"decimal": FieldDataTypeNumber,
 		"number":  FieldDataTypeNumber,
+
+		// Array types
+		"[]string":  FieldDataTypeArrayString,
+		"[]int64":   FieldDataTypeArrayInt64,
+		"[]float64": FieldDataTypeArrayFloat64,
+		"[]number":  FieldDataTypeArrayNumber,
+		"[]bool":    FieldDataTypeArrayBool,
+
+		// c-style array types
+		"string[]":  FieldDataTypeArrayString,
+		"int64[]":   FieldDataTypeArrayInt64,
+		"float64[]": FieldDataTypeArrayFloat64,
+		"number[]":  FieldDataTypeArrayNumber,
+		"bool[]":    FieldDataTypeArrayBool,
+	}
+
+	fieldDataTypeToCHDataType = map[FieldDataType]string{
+		FieldDataTypeString:  "String",
+		FieldDataTypeBool:    "Bool",
+		FieldDataTypeNumber:  "Float64",
+		FieldDataTypeInt64:   "Int64",
+		FieldDataTypeFloat64: "Float64",
+
+		FieldDataTypeArrayString:  "Array(String)",
+		FieldDataTypeArrayInt64:   "Array(Int64)",
+		FieldDataTypeArrayFloat64: "Array(Float64)",
+		FieldDataTypeArrayBool:    "Array(Bool)",
 	}
 )
+
+func (f FieldDataType) CHDataType() string {
+	if chDataType, ok := fieldDataTypeToCHDataType[f]; ok {
+		return chDataType
+	}
+	return "String"
+}
 
 // UnmarshalJSON implements the json.Unmarshaler interface
 func (f *FieldDataType) UnmarshalJSON(data []byte) error {
