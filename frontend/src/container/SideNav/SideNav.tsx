@@ -26,6 +26,7 @@ import { useTranslation } from 'react-i18next';
 import { useSelector } from 'react-redux';
 import { useLocation } from 'react-router-dom';
 import { AppState } from 'store/reducers';
+import { LicenseStatus } from 'types/api/licensesV3/getActive';
 import AppReducer from 'types/reducer/app';
 import { USER_ROLES } from 'types/roles';
 import { checkVersionState } from 'utils/app';
@@ -103,14 +104,13 @@ function SideNav(): JSX.Element {
 
 	const licenseStatus: string = activeLicense?.status || '';
 
-	// const isLicenseActive =
-	// 	licenseStatus?.toLocaleLowerCase() ===
-	// 	LICENSE_PLAN_STATUS.VALID.toLocaleLowerCase();
-	const isLicenseActive = true;
+	const isWorkspaceBlocked = trialInfo?.workSpaceBlock || false;
+
+	const isLicenseActive = licenseStatus !== '' && licenseStatus !== 'INVALID';
 
 	const onClickSignozCloud = (): void => {
 		window.open(
-			'https://www.travala.com',
+			'https://signoz.io/oss-to-cloud/?utm_source=product_navbar&utm_medium=frontend&utm_campaign=oss_users',
 			'_blank',
 		);
 	};
@@ -302,10 +302,11 @@ function SideNav(): JSX.Element {
 			}
 
 			const isOnBasicPlan =
-				activeLicenseFetchError &&
-				[StatusCodes.NOT_FOUND, StatusCodes.NOT_IMPLEMENTED].includes(
-					activeLicenseFetchError?.getHttpStatusCode(),
-				);
+				(activeLicenseFetchError &&
+					[StatusCodes.NOT_FOUND, StatusCodes.NOT_IMPLEMENTED].includes(
+						activeLicenseFetchError?.getHttpStatusCode(),
+					)) ||
+				(activeLicense?.status && activeLicense.status === LicenseStatus.INVALID);
 
 			if (user.role !== USER_ROLES.ADMIN || isOnBasicPlan) {
 				updatedMenuItems = updatedMenuItems.filter(
@@ -354,6 +355,7 @@ function SideNav(): JSX.Element {
 		t,
 		user.role,
 		activeLicenseFetchError,
+		activeLicense?.status,
 	]);
 
 	return (
@@ -369,15 +371,33 @@ function SideNav(): JSX.Element {
 								onClickHandler(ROUTES.HOME, event);
 							}}
 						>
-							<img src="/Logos/travala.png" alt="Travala.com" />
+							<img src="/Logos/signoz-brand-logo.svg" alt="SigNoz" />
 
-							<span className="brand-logo-name nav-item-label"> Travala.com </span>
+							<span className="brand-logo-name nav-item-label"> SigNoz </span>
 						</div>
 
-						{/*{licenseTag && (
-							<div className="license tag nav-item-label">{licenseTag}</div>
-						)}*/}
-						<div className="license tag nav-item-label" style={{background: '#0219c4'}}>Enterprise</div>
+						{licenseTag && (
+							<Tooltip
+								title={
+									// eslint-disable-next-line no-nested-ternary
+									isCommunityUser
+										? 'You are running the community version of SigNoz. You have to install the Enterprise edition in order enable Enterprise features.'
+										: isCommunityEnterpriseUser
+										? 'You do not have an active license present. Add an active license to enable Enterprise features.'
+										: ''
+								}
+								placement="bottomRight"
+							>
+								<div
+									className={cx(
+										'license tag nav-item-label',
+										isCommunityEnterpriseUser && 'community-enterprise-user',
+									)}
+								>
+									{licenseTag}
+								</div>
+							</Tooltip>
+						)}
 					</div>
 				</div>
 
@@ -436,7 +456,7 @@ function SideNav(): JSX.Element {
 								isDisabled={isWorkspaceBlocked}
 								onClick={onClickSignozCloud}
 							/>
-						)}*/}
+						)}
 
 						{userManagementMenuItems.map(
 							(item, index): JSX.Element => (

@@ -1,6 +1,6 @@
 /* eslint-disable react/display-name */
-import { InfoCircleOutlined, PlusOutlined } from '@ant-design/icons';
-import { Flex, Input, Tooltip, Typography } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
+import { Flex, Input, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table/interface';
 import saveAlertApi from 'api/alerts/save';
 import logEvent from 'api/common/logEvent';
@@ -41,7 +41,6 @@ const { Search } = Input;
 function ListAlert({ allAlertRules, refetch }: ListAlertProps): JSX.Element {
 	const { t } = useTranslation('common');
 	const { user } = useAppContext();
-	// TODO[vikrantgupta25]: check with sagar on cleanup
 	const [addNewAlert, action] = useComponentPermission(
 		['add_new_alert', 'action'],
 		user.role,
@@ -174,41 +173,6 @@ function ListAlert({ allAlertRules, refetch }: ListAlertProps): JSX.Element {
 		const filteredData = filterAlerts(allAlertRules, value);
 		setData(filteredData);
 	});
-
-	const searchTooltipContent = (
-		<div style={{ maxWidth: 400 }}>
-			<div style={{ marginBottom: 8, fontWeight: 'bold' }}>Search Options:</div>
-			<div style={{ marginBottom: 4 }}>
-				• <strong>Plain text:</strong> Search across all fields
-			</div>
-			<div style={{ marginBottom: 4 }}>
-				• <strong>Key:value pairs:</strong> Specific field matching
-			</div>
-			<div style={{ marginBottom: 4 }}>
-				• <strong>Multiple terms:</strong> All terms must match (AND logic)
-			</div>
-			<div style={{ marginBottom: 8 }}>
-				• <strong>Status mapping:</strong> Use &quot;ok&quot; for inactive alerts
-			</div>
-			<div style={{ marginBottom: 8, fontWeight: 'bold' }}>Examples:</div>
-			<div style={{ marginBottom: 4 }}>
-				• <code>cpu warning</code> - Find alerts with both &quot;cpu&quot; and
-				&quot;warning&quot;
-			</div>
-			<div style={{ marginBottom: 4 }}>
-				• <code>status:ok</code> - Find alerts with OK status
-			</div>
-			<div style={{ marginBottom: 4 }}>
-				• <code>severity:critical</code> - Find critical alerts
-			</div>
-			<div style={{ marginBottom: 4 }}>
-				• <code>cluster:prod</code> - Find alerts with cluster=prod label
-			</div>
-			<div>
-				• <code>status:ok cpu</code> - Find OK alerts containing &quot;cpu&quot;
-			</div>
-		</div>
-	);
 
 	const dynamicColumns: ColumnsType<GettableAlert> = [
 		{
@@ -379,22 +343,11 @@ function ListAlert({ allAlertRules, refetch }: ListAlertProps): JSX.Element {
 	return (
 		<>
 			<SearchContainer>
-				<div className="search-container">
-					<Search
-						placeholder="Search by name, status, severity, labels or key:value or chaining (e.g. 'status:ok cpu warning')"
-						onChange={handleSearch}
-						defaultValue={searchString}
-						prefix={
-							<Flex align="center" gap={8}>
-								<Tooltip title={searchTooltipContent} placement="bottomRight">
-									<InfoCircleOutlined className="search-tooltip" />
-								</Tooltip>
-								<div className="search-divider" />
-							</Flex>
-						}
-					/>
-				</div>
-
+				<Search
+					placeholder="Search by Alert Name, Severity and Labels"
+					onChange={handleSearch}
+					defaultValue={searchString}
+				/>
 				<Flex gap={12}>
 					{addNewAlert && (
 						<Button
