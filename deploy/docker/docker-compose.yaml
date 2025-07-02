@@ -140,8 +140,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-    depends_on:
-      - migrate-signoz
   otel-collector:
     !!merge <<: *db-depend
     image: signoz/signoz-otel-collector:${OTELCOL_TAG:-v0.128.0}
@@ -185,64 +183,6 @@ services:
       - --dsn=tcp://clickhouse:9000
       - --up=
     restart: on-failure
-  migration-job:
-    !!merge <<: *db-depend
-    image: signoz/migrate:v0.70.5
-    command: >
-      migrate-data
-      --workers=${MIGRATE_WORKERS:-12}
-      --max-open-conns=${MIGRATE_MAX_OPEN_CONNS:-32}
-    environment:
-      # Point to the ClickHouse service defined in SigNoz's compose file
-      CH_ADDR: "signoz-clickhouse:9000" 
-      CH_DATABASE: signoz_metrics
-      CH_USER: default # Replace with your ClickHouse user
-      # If you have a password set for ClickHouse, replace it here
-      # If you are using ClickHouse without password, you can leave it empty
-      CH_PASS: ""
-
-      CH_MAX_OPEN_CONNS: "32"
-      CH_MAX_MEMORY_USAGE: "8388608000"
-      CH_MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY: "524288000"
-      CH_MAX_BYTES_BEFORE_EXTERNAL_SORT: "524288000"
-      CH_DIAL_TIMEOUT: "60s"
-      CH_CONN_MAX_LIFETIME: "30m"
-      CH_MAX_IDLE_CONNS: "8"
-      CH_MAX_EXECUTION_TIME: "300"
-      CH_MAX_THREADS: "50"
-      MIGRATE_WORKERS: "12"
-      MIGRATE_MAX_OPEN_CONNS: "32"
-      NOT_FOUND_METRICS_MAP: >
-        rpc_server_responses_per_rpc_bucket=rpc.server.responses_per_rpc.bucket
-      NOT_FOUND_ATTR_MAP: >
-        http_scheme=http.scheme,net_peer_name=net.peer.name,net_peer_port=net.peer.port,
-        net_protocol_name=net.protocol.name,net_protocol_version=net.protocol.version,
-        rpc_grpc_status_code=rpc.grpc.status_code,rpc_method=rpc.method,
-        rpc_service=rpc.service,rpc_system=rpc.system
-
-    restart: "no"
-  migrate-signoz:
-    !!merge <<: *db-depend
-    image: signoz/migrate:v0.70.5
-    command: migrate-meta         
-    restart: "no"              
-    environment:
-      SQL_DB_PATH: /var/lib/signoz/signoz.db
-      CH_ADDR: signoz-clickhouse:9000
-      CH_DATABASE: signoz_metrics
-      CH_USER: default
-      CH_PASS: ""
-
-      CH_MAX_OPEN_CONNS: "10"
-      CH_MAX_MEMORY_USAGE: "8388608000"
-      CH_MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY: "4194304000"
-      CH_MAX_BYTES_BEFORE_EXTERNAL_SORT: "4194304000"
-
-      SKIP_METRICS_MAP: "dd_internal_stats_payload=true"
-      NOT_FOUND_METRICS_MAP: "rpc_server_responses_per_rpc_bucket=rpc.server.responses_per_rpc.bucket"
-      NOT_FOUND_ATTR_MAP: "http_scheme=http.scheme,"
-    volumes:
-      - sqlite:/var/lib/signoz
 
 networks:
   signoz-net:
