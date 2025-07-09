@@ -18,6 +18,9 @@
                  first_or_random - if first replica one has higher number of errors, pick a random one from replicas with minimum number of errors.
             -->
             <load_balancing>random</load_balancing>
+            <max_execution_time>300</max_execution_time>
+            <timeout_before_checking_execution_speed>10</timeout_before_checking_execution_speed>
+            <max_execution_speed>0</max_execution_speed>
         </default>
 
         <!-- Profile that allows only read queries. -->
