@@ -112,14 +112,15 @@
 				font-weight: 500;
 				line-height: 14px; /* 140% */
 				letter-spacing: 0.4px;
-
-				cursor: pointer;
-
 				max-width: 60px;
 
 				overflow: hidden;
 				text-overflow: ellipsis;
 				white-space: nowrap;
+			}
+
+			.version-clickable {
+				cursor: pointer;
 			}
 
 			.version-update-notification-dot-icon {
@@ -825,6 +826,20 @@
 				}
 			}
 		}
+	}
+}
+
+.nav-item-label-container {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+
+	& span {
+		display: block;
+		max-width: 170px;
+		white-space: nowrap; /* Prevents line breaks */
+		overflow: hidden; /* Hides overflowing content */
+		text-overflow: ellipsis;
 	}
 }
 
