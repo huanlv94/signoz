@@ -130,7 +130,11 @@ function RightContainer({
 	const selectedGraphType =
 		GraphTypes.find((e) => e.name === selectedGraph)?.display || '';
 
-	const onCreateAlertsHandler = useCreateAlerts(selectedWidget, 'panelView');
+	const onCreateAlertsHandler = useCreateAlerts(
+		selectedWidget,
+		'panelView',
+		thresholds,
+	);
 
 	const allowThreshold = panelTypeVsThreshold[selectedGraph];
 	const allowSoftMinMax = panelTypeVsSoftMinMax[selectedGraph];
@@ -333,8 +337,8 @@ function RightContainer({
 
 				{allowYAxisUnit && (
 					<YAxisUnitSelector
-						defaultValue={yAxisUnit}
 						onSelect={setYAxisUnit}
+						value={yAxisUnit || ''}
 						fieldLabel={
 							selectedGraphType === PanelDisplay.VALUE ||
 							selectedGraphType === PanelDisplay.PIE

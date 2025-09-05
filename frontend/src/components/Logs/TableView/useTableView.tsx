@@ -1,17 +1,14 @@
 import './useTableView.styles.scss';
 
-import Convert from 'ansi-to-html';
 import { Typography } from 'antd';
 import { ColumnsType } from 'antd/es/table';
 import cx from 'classnames';
 import { DATE_TIME_FORMATS } from 'constants/dateTimeFormats';
-import { unescapeString } from 'container/LogDetailedView/utils';
-import dompurify from 'dompurify';
+import { getSanitizedLogBody } from 'container/LogDetailedView/utils';
 import { useIsDarkMode } from 'hooks/useDarkMode';
 import { FlatLogData } from 'lib/logs/flatLogData';
 import { useTimezone } from 'providers/Timezone';
 import { useMemo } from 'react';
-import { FORBID_DOM_PURIFY_TAGS } from 'utils/app';
 
 import LogStateIndicator from '../LogStateIndicator/LogStateIndicator';
 import { getLogIndicatorTypeForTable } from '../LogStateIndicator/utils';
@@ -26,8 +23,6 @@ import {
 	UseTableViewProps,
 	UseTableViewResult,
 } from './types';
-
-const convert = new Convert();
 
 export const useTableView = (props: UseTableViewProps): UseTableViewResult => {
 	const {
@@ -61,6 +56,8 @@ export const useTableView = (props: UseTableViewProps): UseTableViewResult => {
 			.map(({ name }) => ({
 				title: name,
 				dataIndex: name,
+				accessorKey: name,
+				id: name.toLowerCase().replace(/\./g, '_'),
 				key: name,
 				render: (field): ColumnTypeRender<Record<string, unknown>> => ({
 					props: {
@@ -88,7 +85,10 @@ export const useTableView = (props: UseTableViewProps): UseTableViewResult => {
 				// We do not need any title and data index for the log state indicator
 				title: '',
 				dataIndex: '',
+				// eslint-disable-next-line sonarjs/no-duplicate-string
 				key: 'state-indicator',
+				accessorKey: 'state-indicator',
+				id: 'state-indicator',
 				render: (_, item): ColumnTypeRender<Record<string, unknown>> => ({
 					children: (
 						<div className={cx('state-indicator', fontSize)}>
@@ -106,6 +106,8 @@ export const useTableView = (props: UseTableViewProps): UseTableViewResult => {
 							title: 'timestamp',
 							dataIndex: 'timestamp',
 							key: 'timestamp',
+							accessorKey: 'timestamp',
+							id: 'timestamp',
 							// https://github.com/ant-design/ant-design/discussions/36886
 							render: (
 								field: string | number,
@@ -140,6 +142,8 @@ export const useTableView = (props: UseTableViewProps): UseTableViewResult => {
 							title: 'body',
 							dataIndex: 'body',
 							key: 'body',
+							accessorKey: 'body',
+							id: 'body',
 							render: (
 								field: string | number,
 							): ColumnTypeRender<Record<string, unknown>> => ({
@@ -149,11 +153,7 @@ export const useTableView = (props: UseTableViewProps): UseTableViewResult => {
 								children: (
 									<TableBodyContent
 										dangerouslySetInnerHTML={{
-											__html: convert.toHtml(
-												dompurify.sanitize(unescapeString(field as string), {
-													FORBID_TAGS: [...FORBID_DOM_PURIFY_TAGS],
-												}),
-											),
+											__html: getSanitizedLogBody(field as string),
 										}}
 										fontSize={fontSize}
 										linesPerRow={linesPerRow}

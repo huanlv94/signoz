@@ -7,20 +7,25 @@ import (
 	"time"
 
 	"github.com/SigNoz/signoz/pkg/errors"
+	"github.com/SigNoz/signoz/pkg/factory"
 	"github.com/SigNoz/signoz/pkg/http/render"
 	"github.com/SigNoz/signoz/pkg/modules/dashboard"
+	"github.com/SigNoz/signoz/pkg/querybuilder"
+	"github.com/SigNoz/signoz/pkg/transition"
 	"github.com/SigNoz/signoz/pkg/types/authtypes"
+	"github.com/SigNoz/signoz/pkg/types/ctxtypes"
 	"github.com/SigNoz/signoz/pkg/types/dashboardtypes"
 	"github.com/SigNoz/signoz/pkg/valuer"
 	"github.com/gorilla/mux"
 )
 
 type handler struct {
-	module dashboard.Module
+	module           dashboard.Module
+	providerSettings factory.ProviderSettings
 }
 
-func NewHandler(module dashboard.Module) dashboard.Handler {
-	return &handler{module: module}
+func NewHandler(module dashboard.Module, providerSettings factory.ProviderSettings) dashboard.Handler {
+	return &handler{module: module, providerSettings: providerSettings}
 }
 
 func (handler *handler) Create(rw http.ResponseWriter, r *http.Request) {
@@ -44,6 +49,13 @@ func (handler *handler) Create(rw http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		render.Error(rw, err)
 		return
+	}
+
+	if querybuilder.QBV5Enabled {
+		dashboardMigrator := transition.NewDashboardMigrateV5(handler.providerSettings.Logger, nil, nil)
+		if req["version"] != "v5" {
+			dashboardMigrator.Migrate(ctx, req)
+		}
 	}
 
 	dashboard, err := handler.module.Create(ctx, orgID, claims.Email, valuer.MustNewUUID(claims.UserID), req)
@@ -95,7 +107,13 @@ func (handler *handler) Update(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dashboard, err := handler.module.Update(ctx, orgID, dashboardID, claims.Email, req)
+	diff := 0
+	// Allow multiple deletions for API key requests; enforce for others
+	if authType, ok := ctxtypes.AuthTypeFromContext(ctx); ok && authType == ctxtypes.AuthTypeJWT {
+		diff = 1
+	}
+
+	dashboard, err := handler.module.Update(ctx, orgID, dashboardID, claims.Email, req, diff)
 	if err != nil {
 		render.Error(rw, err)
 		return
@@ -138,7 +156,7 @@ func (handler *handler) LockUnlock(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = handler.module.LockUnlock(ctx, orgID, dashboardID, claims.Email, *req.Locked)
+	err = handler.module.LockUnlock(ctx, orgID, dashboardID, claims.Email, claims.Role, *req.Locked)
 	if err != nil {
 		render.Error(rw, err)
 		return
