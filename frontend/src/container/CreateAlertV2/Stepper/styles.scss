@@ -3,7 +3,7 @@
 	align-items: center;
 	gap: 16px;
 	margin-bottom: 16px;
-	padding: 16px;
+	padding: 16px 0;
 	border-radius: 8px;
 }
 
@@ -41,4 +41,23 @@
 	background-repeat: repeat-x;
 	background-position: center;
 	margin-left: 8px;
+}
+
+.lightMode {
+	.step-number {
+		background-color: var(--bg-robin-400);
+		color: var(--text-slate-400);
+	}
+
+	.step-label {
+		color: var(--bg-ink-300);
+	}
+
+	.dotted-line {
+		background-image: radial-gradient(
+			circle,
+			var(--bg-ink-200) 1px,
+			transparent 1px
+		);
+	}
 }

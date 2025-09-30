@@ -300,6 +300,7 @@ function RightContainer({
 					style={{ width: '100%' }}
 					className="panel-type-select"
 					data-testid="panel-change-select"
+					data-stacking-state={stackedBarChart ? 'true' : 'false'}
 				>
 					{graphTypes.map((item) => (
 						<Option key={item.name} value={item.name}>
@@ -535,8 +536,6 @@ interface RightContainerProps {
 	setTitle: Dispatch<SetStateAction<string>>;
 	description: string;
 	setDescription: Dispatch<SetStateAction<string>>;
-	stacked: boolean;
-	setStacked: Dispatch<SetStateAction<boolean>>;
 	opacity: string;
 	setOpacity: Dispatch<SetStateAction<string>>;
 	selectedNullZeroValue: string;

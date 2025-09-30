@@ -8,6 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/SigNoz/signoz/pkg/modules/thirdpartyapi"
+
+	//qbtypes "github.com/SigNoz/signoz/pkg/types/querybuildertypes/querybuildertypesv5"
 	"io"
 	"math"
 	"net/http"
@@ -45,7 +48,6 @@ import (
 	"github.com/SigNoz/signoz/pkg/query-service/app/cloudintegrations"
 	"github.com/SigNoz/signoz/pkg/query-service/app/inframetrics"
 	queues2 "github.com/SigNoz/signoz/pkg/query-service/app/integrations/messagingQueues/queues"
-	"github.com/SigNoz/signoz/pkg/query-service/app/integrations/thirdPartyApi"
 	"github.com/SigNoz/signoz/pkg/query-service/app/logs"
 	logsv3 "github.com/SigNoz/signoz/pkg/query-service/app/logs/v3"
 	logsv4 "github.com/SigNoz/signoz/pkg/query-service/app/logs/v4"
@@ -84,9 +86,8 @@ import (
 type status string
 
 const (
-	statusSuccess       status = "success"
-	statusError         status = "error"
-	defaultFluxInterval        = 5 * time.Minute
+	statusSuccess status = "success"
+	statusError   status = "error"
 )
 
 // NewRouter creates and configures a Gorilla Router.
@@ -478,11 +479,6 @@ func (aH *APIHandler) RegisterQueryRangeV5Routes(router *mux.Router, am *middlew
 // todo(remove): Implemented at render package (github.com/SigNoz/signoz/pkg/http/render) with the new error structure
 func (aH *APIHandler) Respond(w http.ResponseWriter, data interface{}) {
 	writeHttpResponse(w, data)
-}
-
-// RegisterPrivateRoutes registers routes for this handler on the given router
-func (aH *APIHandler) RegisterPrivateRoutes(router *mux.Router) {
-	router.HandleFunc("/api/v1/channels", aH.AlertmanagerAPI.ListAllChannels).Methods(http.MethodGet)
 }
 
 // RegisterRoutes registers routes for this handler on the given router
@@ -5028,114 +5024,116 @@ func (aH *APIHandler) getQueueOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (aH *APIHandler) getDomainList(w http.ResponseWriter, r *http.Request) {
+	// Extract claims from context for organization ID
 	claims, err := authtypes.ClaimsFromContext(r.Context())
 	if err != nil {
 		render.Error(w, err)
 		return
 	}
+
 	orgID, err := valuer.NewUUID(claims.OrgID)
 	if err != nil {
 		render.Error(w, err)
 		return
 	}
 
+	// Parse the request body to get third-party query parameters
 	thirdPartyQueryRequest, apiErr := ParseRequestBody(r)
 	if apiErr != nil {
-		zap.L().Error(apiErr.Err.Error())
-		RespondError(w, apiErr, nil)
+		zap.L().Error("Failed to parse request body", zap.Error(apiErr))
+		render.Error(w, errorsV2.New(errorsV2.TypeInvalidInput, errorsV2.CodeInvalidInput, apiErr.Error()))
 		return
 	}
 
-	queryRangeParams, err := thirdPartyApi.BuildDomainList(thirdPartyQueryRequest)
+	// Build the v5 query range request for domain listing
+	queryRangeRequest, err := thirdpartyapi.BuildDomainList(thirdPartyQueryRequest)
 	if err != nil {
-		RespondError(w, model.BadRequest(err), nil)
+		zap.L().Error("Failed to build domain list query", zap.Error(err))
+		apiErrObj := errorsV2.New(errorsV2.TypeInvalidInput, errorsV2.CodeInvalidInput, err.Error())
+		render.Error(w, apiErrObj)
 		return
 	}
 
-	if err := validateQueryRangeParamsV3(queryRangeParams); err != nil {
-		zap.L().Error(err.Error())
-		RespondError(w, apiErr, nil)
-		return
-	}
-
-	var result []*v3.Result
-	var errQuriesByName map[string]error
-
-	result, errQuriesByName, err = aH.querierV2.QueryRange(r.Context(), orgID, queryRangeParams)
+	// Execute the query using the v5 querier
+	result, err := aH.Signoz.Querier.QueryRange(r.Context(), orgID, queryRangeRequest)
 	if err != nil {
-		apiErrObj := &model.ApiError{Typ: model.ErrorBadData, Err: err}
-		RespondError(w, apiErrObj, errQuriesByName)
+		zap.L().Error("Query execution failed", zap.Error(err))
+		apiErrObj := errorsV2.New(errorsV2.TypeInvalidInput, errorsV2.CodeInvalidInput, err.Error())
+		render.Error(w, apiErrObj)
 		return
 	}
 
-	result, err = postprocess.PostProcessResult(result, queryRangeParams)
-	if err != nil {
-		apiErrObj := &model.ApiError{Typ: model.ErrorBadData, Err: err}
-		RespondError(w, apiErrObj, errQuriesByName)
-		return
-	}
+	result = thirdpartyapi.MergeSemconvColumns(result)
+	result = thirdpartyapi.FilterIntermediateColumns(result)
 
+	// Filter IP addresses if ShowIp is false
+	var finalResult = result
 	if !thirdPartyQueryRequest.ShowIp {
-		result = thirdPartyApi.FilterResponse(result)
+		filteredResults := thirdpartyapi.FilterResponse([]*qbtypes.QueryRangeResponse{result})
+		if len(filteredResults) > 0 {
+			finalResult = filteredResults[0]
+		}
 	}
 
-	resp := v3.QueryRangeResponse{
-		Result: result,
-	}
-	aH.Respond(w, resp)
+	// Send the response
+	aH.Respond(w, finalResult)
 }
 
+// getDomainInfo handles requests for domain information using v5 query builder
 func (aH *APIHandler) getDomainInfo(w http.ResponseWriter, r *http.Request) {
+	// Extract claims from context for organization ID
 	claims, err := authtypes.ClaimsFromContext(r.Context())
 	if err != nil {
 		render.Error(w, err)
 		return
 	}
+
 	orgID, err := valuer.NewUUID(claims.OrgID)
 	if err != nil {
 		render.Error(w, err)
 		return
 	}
 
+	// Parse the request body to get third-party query parameters
 	thirdPartyQueryRequest, apiErr := ParseRequestBody(r)
 	if apiErr != nil {
-		zap.L().Error(apiErr.Err.Error())
-		RespondError(w, apiErr, nil)
+		zap.L().Error("Failed to parse request body", zap.Error(apiErr))
+		render.Error(w, errorsV2.New(errorsV2.TypeInvalidInput, errorsV2.CodeInvalidInput, apiErr.Error()))
 		return
 	}
 
-	queryRangeParams, err := thirdPartyApi.BuildDomainInfo(thirdPartyQueryRequest)
+	// Build the v5 query range request for domain info
+	queryRangeRequest, err := thirdpartyapi.BuildDomainInfo(thirdPartyQueryRequest)
 	if err != nil {
-		RespondError(w, model.BadRequest(err), nil)
+		zap.L().Error("Failed to build domain info query", zap.Error(err))
+		apiErrObj := errorsV2.New(errorsV2.TypeInvalidInput, errorsV2.CodeInvalidInput, err.Error())
+		render.Error(w, apiErrObj)
 		return
 	}
 
-	if err := validateQueryRangeParamsV3(queryRangeParams); err != nil {
-		zap.L().Error(err.Error())
-		RespondError(w, apiErr, nil)
-		return
-	}
-
-	var result []*v3.Result
-	var errQuriesByName map[string]error
-
-	result, errQuriesByName, err = aH.querierV2.QueryRange(r.Context(), orgID, queryRangeParams)
+	// Execute the query using the v5 querier
+	result, err := aH.Signoz.Querier.QueryRange(r.Context(), orgID, queryRangeRequest)
 	if err != nil {
-		apiErrObj := &model.ApiError{Typ: model.ErrorBadData, Err: err}
-		RespondError(w, apiErrObj, errQuriesByName)
+		zap.L().Error("Query execution failed", zap.Error(err))
+		apiErrObj := errorsV2.New(errorsV2.TypeInvalidInput, errorsV2.CodeInvalidInput, err.Error())
+		render.Error(w, apiErrObj)
 		return
 	}
 
-	result = postprocess.TransformToTableForBuilderQueries(result, queryRangeParams)
+	result = thirdpartyapi.MergeSemconvColumns(result)
+	result = thirdpartyapi.FilterIntermediateColumns(result)
 
+	// Filter IP addresses if ShowIp is false
+	var finalResult *qbtypes.QueryRangeResponse = result
 	if !thirdPartyQueryRequest.ShowIp {
-		result = thirdPartyApi.FilterResponse(result)
+		filteredResults := thirdpartyapi.FilterResponse([]*qbtypes.QueryRangeResponse{result})
+		if len(filteredResults) > 0 {
+			finalResult = filteredResults[0]
+		}
 	}
 
-	resp := v3.QueryRangeResponse{
-		Result: result,
-	}
-	aH.Respond(w, resp)
+	// Send the response
+	aH.Respond(w, finalResult)
 }
 
 // RegisterTraceFunnelsRoutes adds trace funnels routes
