@@ -2,6 +2,7 @@ import { QueryParams } from 'constants/query';
 import { AlertDetectionTypes } from 'container/FormAlertRules';
 import { useCreateAlertRule } from 'hooks/alerts/useCreateAlertRule';
 import { useTestAlertRule } from 'hooks/alerts/useTestAlertRule';
+import { useUpdateAlertRule } from 'hooks/alerts/useUpdateAlertRule';
 import { useQueryBuilder } from 'hooks/queryBuilder/useQueryBuilder';
 import { mapQueryDataFromApi } from 'lib/newQueryBuilder/queryBuilderMappers/mapQueryDataFromApi';
 import {
@@ -50,7 +51,13 @@ export const useCreateAlertState = (): ICreateAlertContextProps => {
 export function CreateAlertProvider(
 	props: ICreateAlertProviderProps,
 ): JSX.Element {
-	const { children } = props;
+	const {
+		children,
+		initialAlertState,
+		isEditMode,
+		ruleId,
+		initialAlertType,
+	} = props;
 
 	const [alertState, setAlertState] = useReducer(
 		alertCreationReducer,
@@ -61,9 +68,12 @@ export function CreateAlertProvider(
 	const location = useLocation();
 	const queryParams = new URLSearchParams(location.search);
 
-	const [alertType, setAlertType] = useState<AlertTypes>(() =>
-		getInitialAlertTypeFromURL(queryParams, currentQuery),
-	);
+	const [alertType, setAlertType] = useState<AlertTypes>(() => {
+		if (isEditMode) {
+			return initialAlertType;
+		}
+		return getInitialAlertTypeFromURL(queryParams, currentQuery);
+	});
 
 	const handleAlertTypeChange = useCallback(
 		(value: AlertTypes): void => {
@@ -114,6 +124,31 @@ export function CreateAlertProvider(
 		});
 	}, [alertType]);
 
+	useEffect(() => {
+		if (isEditMode && initialAlertState) {
+			setAlertState({
+				type: 'SET_INITIAL_STATE',
+				payload: initialAlertState.basicAlertState,
+			});
+			setThresholdState({
+				type: 'SET_INITIAL_STATE',
+				payload: initialAlertState.thresholdState,
+			});
+			setEvaluationWindow({
+				type: 'SET_INITIAL_STATE',
+				payload: initialAlertState.evaluationWindowState,
+			});
+			setAdvancedOptions({
+				type: 'SET_INITIAL_STATE',
+				payload: initialAlertState.advancedOptionsState,
+			});
+			setNotificationSettings({
+				type: 'SET_INITIAL_STATE',
+				payload: initialAlertState.notificationSettingsState,
+			});
+		}
+	}, [initialAlertState, isEditMode]);
+
 	const discardAlertRule = useCallback(() => {
 		setAlertState({
 			type: 'RESET',
@@ -143,6 +178,11 @@ export function CreateAlertProvider(
 		isLoading: isTestingAlertRule,
 	} = useTestAlertRule();
 
+	const {
+		mutate: updateAlertRule,
+		isLoading: isUpdatingAlertRule,
+	} = useUpdateAlertRule(ruleId || '');
+
 	const contextValue: ICreateAlertContextProps = useMemo(
 		() => ({
 			alertState,
@@ -162,6 +202,9 @@ export function CreateAlertProvider(
 			isCreatingAlertRule,
 			testAlertRule,
 			isTestingAlertRule,
+			updateAlertRule,
+			isUpdatingAlertRule,
+			isEditMode: isEditMode || false,
 		}),
 		[
 			alertState,
@@ -176,6 +219,9 @@ export function CreateAlertProvider(
 			isCreatingAlertRule,
 			testAlertRule,
 			isTestingAlertRule,
+			updateAlertRule,
+			isUpdatingAlertRule,
+			isEditMode,
 		],
 	);
 
