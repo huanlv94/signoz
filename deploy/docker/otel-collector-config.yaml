@@ -28,7 +28,7 @@ receivers:
         - job_name: alb-cloudwatch
           scrape_interval: 60s
           static_configs:
-            - targets: ['trace.itravala.com:9106']
+            - targets: ['cloudwatch_exporter:9106']
         - job_name: otel-collector
           static_configs:
           - targets:
