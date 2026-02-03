@@ -61,6 +61,58 @@ describe('extractQueryPairs', () => {
 		]);
 	});
 
+	test('should test for filter expression with freeText', () => {
+		const input = "disconnected deployment.env not in ['mq-kafka']";
+		const result = extractQueryPairs(input);
+		expect(result).toEqual([
+			{
+				key: 'disconnected',
+				operator: '',
+				valueList: [],
+				valuesPosition: [],
+				hasNegation: false,
+				isMultiValue: false,
+				value: undefined,
+				position: {
+					keyStart: 0,
+					keyEnd: 11,
+					operatorStart: 0,
+					operatorEnd: 0,
+					negationStart: 0,
+					negationEnd: 0,
+					valueStart: undefined,
+					valueEnd: undefined,
+				},
+				isComplete: false,
+			},
+			{
+				key: 'deployment.env',
+				operator: 'in',
+				value: "['mq-kafka']",
+				valueList: ["'mq-kafka'"],
+				valuesPosition: [
+					{
+						start: 36,
+						end: 45,
+					},
+				],
+				hasNegation: true,
+				isMultiValue: true,
+				position: {
+					keyStart: 13,
+					keyEnd: 26,
+					operatorStart: 32,
+					operatorEnd: 33,
+					valueStart: 35,
+					valueEnd: 46,
+					negationStart: 28,
+					negationEnd: 30,
+				},
+				isComplete: true,
+			},
+		]);
+	});
+
 	test('should extract IN with numeric list inside parentheses', () => {
 		const input = 'id IN (1, 2, 3)';
 		const result = extractQueryPairs(input);
@@ -327,6 +379,23 @@ describe('extractQueryPairs', () => {
 		expect(Array.isArray(result)).toBe(true);
 
 		consoleSpy.mockRestore();
+	});
+
+	test('should treat lowercase exists as non-value operator', () => {
+		const input = 'body exists service.name contains "test"';
+		const result = extractQueryPairs(input);
+
+		expect(result).toHaveLength(2);
+		expect(result[0].key).toBe('body');
+		expect(result[0].operator).toBe('exists');
+		expect(result[0].value).toBeUndefined();
+		expect(result[0].valuesPosition).toEqual([]);
+		expect(result[0].isComplete).toBe(false);
+		expect(result[1].key).toBe('service.name');
+		expect(result[1].operator).toBe('contains');
+		expect(result[1].value).toBe('"test"');
+		expect(result[1].valuesPosition).toEqual([]);
+		expect(result[1].isComplete).toBe(true);
 	});
 });
 

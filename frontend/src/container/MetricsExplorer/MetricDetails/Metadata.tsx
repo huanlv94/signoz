@@ -1,3 +1,5 @@
+import { useCallback, useMemo, useState } from 'react';
+import { useQueryClient } from 'react-query';
 import { Button, Collapse, Input, Select, Typography } from 'antd';
 import { ColumnsType } from 'antd/es/table';
 import logEvent from 'api/common/logEvent';
@@ -6,14 +8,13 @@ import { MetricType } from 'api/metricsExplorer/getMetricsList';
 import { UpdateMetricMetadataProps } from 'api/metricsExplorer/updateMetricMetadata';
 import { ResizeTable } from 'components/ResizeTable';
 import YAxisUnitSelector from 'components/YAxisUnitSelector';
+import { YAxisSource } from 'components/YAxisUnitSelector/types';
 import { getUniversalNameFromMetricUnit } from 'components/YAxisUnitSelector/utils';
 import FieldRenderer from 'container/LogDetailedView/FieldRenderer';
 import { DataType } from 'container/LogDetailedView/TableView';
 import { useUpdateMetricMetadata } from 'hooks/metricsExplorer/useUpdateMetricMetadata';
 import { useNotifications } from 'hooks/useNotifications';
 import { Edit2, Save, X } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
-import { useQueryClient } from 'react-query';
 
 import { MetricsExplorerEventKeys, MetricsExplorerEvents } from '../events';
 import {
@@ -120,6 +121,7 @@ function Metadata({
 							setMetricMetadata((prev) => ({ ...prev, unit: value }));
 						}}
 						data-testid="unit-select"
+						source={YAxisSource.EXPLORER}
 					/>
 				);
 			}

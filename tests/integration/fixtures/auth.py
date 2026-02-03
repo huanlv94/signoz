@@ -1,6 +1,5 @@
-from typing import Tuple
 from http import HTTPStatus
-from typing import Callable, List
+from typing import Callable, List, Tuple
 
 import pytest
 import requests
@@ -20,6 +19,10 @@ logger = setup_logger(__name__)
 USER_ADMIN_NAME = "admin"
 USER_ADMIN_EMAIL = "admin@integration.test"
 USER_ADMIN_PASSWORD = "password123Z$"
+
+USER_EDITOR_NAME = "editor"
+USER_EDITOR_EMAIL = "editor@integration.test"
+USER_EDITOR_PASSWORD = "password123Z$"
 
 
 @pytest.fixture(name="create_user_admin", scope="package")
@@ -134,9 +137,9 @@ def get_tokens(signoz: types.SigNoz) -> Callable[[str, str], Tuple[str, str]]:
         )
 
         assert response.status_code == HTTPStatus.OK
-        accessToken = response.json()["data"]["accessToken"]
-        refreshToken = response.json()["data"]["refreshToken"]
-        return accessToken, refreshToken
+        access_token = response.json()["data"]["accessToken"]
+        refresh_token = response.json()["data"]["refreshToken"]
+        return access_token, refresh_token
 
     return _get_tokens
 

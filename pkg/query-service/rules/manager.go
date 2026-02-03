@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/SigNoz/signoz/pkg/query-service/utils/labels"
 	"log/slog"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/SigNoz/signoz/pkg/query-service/utils/labels"
+	"github.com/SigNoz/signoz/pkg/queryparser"
 
 	"go.uber.org/zap"
 
@@ -29,6 +31,7 @@ import (
 	"github.com/SigNoz/signoz/pkg/types/alertmanagertypes"
 	"github.com/SigNoz/signoz/pkg/types/authtypes"
 	ruletypes "github.com/SigNoz/signoz/pkg/types/ruletypes"
+	"github.com/SigNoz/signoz/pkg/types/telemetrytypes"
 	"github.com/SigNoz/signoz/pkg/valuer"
 )
 
@@ -83,6 +86,7 @@ func prepareTaskName(ruleId interface{}) string {
 // ManagerOptions bundles options for the Manager.
 type ManagerOptions struct {
 	TelemetryStore telemetrystore.TelemetryStore
+	MetadataStore  telemetrytypes.MetadataStore
 	Prometheus     prometheus.Prometheus
 
 	Context     context.Context
@@ -102,6 +106,7 @@ type ManagerOptions struct {
 	RuleStore           ruletypes.RuleStore
 	MaintenanceStore    ruletypes.MaintenanceStore
 	SqlStore            sqlstore.SQLStore
+	QueryParser         queryparser.QueryParser
 }
 
 // The Manager manages recording and alerting rules.
@@ -124,6 +129,8 @@ type Manager struct {
 	alertmanager alertmanager.Alertmanager
 	sqlstore     sqlstore.SQLStore
 	orgGetter    organization.Getter
+	// queryParser is used for parsing queries for rules
+	queryParser queryparser.QueryParser
 }
 
 func defaultOptions(o *ManagerOptions) *ManagerOptions {
@@ -165,6 +172,8 @@ func defaultPrepareTaskFunc(opts PrepareTaskOptions) (Task, error) {
 			opts.SLogger,
 			WithEvalDelay(opts.ManagerOpts.EvalDelay),
 			WithSQLStore(opts.SQLStore),
+			WithQueryParser(opts.ManagerOpts.QueryParser),
+			WithMetadataStore(opts.ManagerOpts.MetadataStore),
 		)
 
 		if err != nil {
@@ -187,6 +196,8 @@ func defaultPrepareTaskFunc(opts PrepareTaskOptions) (Task, error) {
 			opts.Reader,
 			opts.ManagerOpts.Prometheus,
 			WithSQLStore(opts.SQLStore),
+			WithQueryParser(opts.ManagerOpts.QueryParser),
+			WithMetadataStore(opts.ManagerOpts.MetadataStore),
 		)
 
 		if err != nil {
@@ -225,6 +236,7 @@ func NewManager(o *ManagerOptions) (*Manager, error) {
 		alertmanager:        o.Alertmanager,
 		orgGetter:           o.OrgGetter,
 		sqlstore:            o.SqlStore,
+		queryParser:         o.QueryParser,
 	}
 
 	zap.L().Debug("Manager created successfully with NotificationGroup")
@@ -763,8 +775,10 @@ func (m *Manager) prepareTestNotifyFunc() NotifyFunc {
 			a := &alertmanagertypes.PostableAlert{}
 			a.Annotations = alert.Annotations.Map()
 			a.StartsAt = strfmt.DateTime(alert.FiredAt)
+			labelsMap := alert.Labels.Map()
+			labelsMap[labels.TestAlertLabel] = "true"
 			a.Alert = alertmanagertypes.AlertModel{
-				Labels:       alert.Labels.Map(),
+				Labels:       labelsMap,
 				GeneratorURL: strfmt.URI(generatorURL),
 			}
 			if !alert.ResolvedAt.IsZero() {

@@ -1,6 +1,16 @@
 /* eslint-disable sonarjs/cognitive-complexity */
-import './LogsExplorerViews.styles.scss';
-
+import {
+	Dispatch,
+	memo,
+	MutableRefObject,
+	SetStateAction,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import getFromLocalstorage from 'api/browser/localstorage/get';
 import setToLocalstorage from 'api/browser/localstorage/set';
 import logEvent from 'api/common/logEvent';
@@ -8,11 +18,7 @@ import { ENTITY_VERSION_V5 } from 'constants/app';
 import { LOCALSTORAGE } from 'constants/localStorage';
 import { AVAILABLE_EXPORT_PANEL_TYPES } from 'constants/panelTypes';
 import { QueryParams } from 'constants/query';
-import {
-	initialFilters,
-	initialQueriesMap,
-	PANEL_TYPES,
-} from 'constants/queryBuilder';
+import { initialFilters, PANEL_TYPES } from 'constants/queryBuilder';
 import { DEFAULT_PER_PAGE_VALUE } from 'container/Controls/config';
 import ExplorerOptionWrapper from 'container/ExplorerOptions/ExplorerOptionWrapper';
 import { ChangeViewFunctionType } from 'container/ExplorerOptions/types';
@@ -26,6 +32,7 @@ import {
 	getListQuery,
 	getQueryByPanelType,
 } from 'container/LogsExplorerViews/explorerUtils';
+import { BuilderUnitsFilter } from 'container/QueryBuilder/filters/BuilderUnitsFilter';
 import TimeSeriesView from 'container/TimeSeriesView/TimeSeriesView';
 import { useCopyLogLink } from 'hooks/logs/useCopyLogLink';
 import { useGetExplorerQueryRange } from 'hooks/queryBuilder/useGetExplorerQueryRange';
@@ -34,18 +41,6 @@ import { useSafeNavigate } from 'hooks/useSafeNavigate';
 import useUrlQueryData from 'hooks/useUrlQueryData';
 import { isEmpty, isUndefined } from 'lodash-es';
 import LiveLogs from 'pages/LiveLogs';
-import {
-	Dispatch,
-	memo,
-	MutableRefObject,
-	SetStateAction,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from 'react';
-import { useDispatch, useSelector } from 'react-redux';
 import { UpdateTimeInterval } from 'store/actions';
 import { AppState } from 'store/reducers';
 import { Warning } from 'types/api';
@@ -61,6 +56,8 @@ import { generateExportToDashboardLink } from 'utils/dashboard/generateExportToD
 import { v4 } from 'uuid';
 
 import LogsActionsContainer from './LogsActionsContainer';
+
+import './LogsExplorerViews.styles.scss';
 
 function LogsExplorerViewsContainer({
 	setIsLoadingQueries,
@@ -101,12 +98,7 @@ function LogsExplorerViewsContainer({
 	const currentMinTimeRef = useRef<number>(minTime);
 
 	// Context
-	const {
-		currentQuery,
-		stagedQuery,
-		panelType,
-		updateAllQueriesOperators,
-	} = useQueryBuilder();
+	const { stagedQuery, panelType } = useQueryBuilder();
 
 	const selectedPanelType = panelType || PANEL_TYPES.LIST;
 
@@ -119,13 +111,19 @@ function LogsExplorerViewsContainer({
 
 	const [orderBy, setOrderBy] = useState<string>('timestamp:desc');
 
+	const [yAxisUnit, setYAxisUnit] = useState<string>('');
+
 	const listQuery = useMemo(() => getListQuery(stagedQuery) || null, [
 		stagedQuery,
 	]);
 
 	const isLimit: boolean = useMemo(() => {
-		if (!listQuery) return false;
-		if (!listQuery.limit) return false;
+		if (!listQuery) {
+			return false;
+		}
+		if (!listQuery.limit) {
+			return false;
+		}
 
 		return logs.length >= listQuery.limit;
 	}, [logs.length, listQuery]);
@@ -136,13 +134,8 @@ function LogsExplorerViewsContainer({
 	}, [stagedQuery, activeLogId]);
 
 	const exportDefaultQuery = useMemo(
-		() =>
-			updateAllQueriesOperators(
-				currentQuery || initialQueriesMap.logs,
-				selectedPanelType,
-				DataSource.LOGS,
-			),
-		[currentQuery, selectedPanelType, updateAllQueriesOperators],
+		() => getExportQueryData(requestData, selectedPanelType),
+		[selectedPanelType, requestData],
 	);
 
 	const {
@@ -224,10 +217,16 @@ function LogsExplorerViewsContainer({
 	}, [data?.payload, data?.warning]);
 
 	const handleEndReached = useCallback(() => {
-		if (!listQuery) return;
+		if (!listQuery) {
+			return;
+		}
 
-		if (isLimit) return;
-		if (logs.length < pageSize) return;
+		if (isLimit) {
+			return;
+		}
+		if (logs.length < pageSize) {
+			return;
+		}
 
 		const { limit, filters, filter } = listQuery;
 
@@ -236,7 +235,9 @@ function LogsExplorerViewsContainer({
 		const nextPageSize =
 			limit && nextLogsLength >= limit ? limit - logs.length : pageSize;
 
-		if (!stagedQuery) return;
+		if (!stagedQuery) {
+			return;
+		}
 
 		const newRequestData = getRequestData(stagedQuery, {
 			filters: filters || { items: [], op: 'AND' },
@@ -269,7 +270,9 @@ function LogsExplorerViewsContainer({
 
 	const handleExport = useCallback(
 		(dashboard: Dashboard | null, isNewDashboard?: boolean): void => {
-			if (!dashboard || !selectedPanelType) return;
+			if (!dashboard || !selectedPanelType) {
+				return;
+			}
 
 			const panelTypeParam = AVAILABLE_EXPORT_PANEL_TYPES.includes(
 				selectedPanelType,
@@ -279,9 +282,9 @@ function LogsExplorerViewsContainer({
 
 			const widgetId = v4();
 
-			const query = getExportQueryData(requestData, selectedPanelType);
-
-			if (!query) return;
+			if (!exportDefaultQuery) {
+				return;
+			}
 
 			logEvent('Logs Explorer: Add to dashboard successful', {
 				panelType: selectedPanelType,
@@ -290,7 +293,7 @@ function LogsExplorerViewsContainer({
 			});
 
 			const dashboardEditView = generateExportToDashboardLink({
-				query,
+				query: exportDefaultQuery,
 				panelType: panelTypeParam,
 				dashboardId: dashboard.id,
 				widgetId,
@@ -298,7 +301,7 @@ function LogsExplorerViewsContainer({
 
 			safeNavigate(dashboardEditView);
 		},
-		[safeNavigate, requestData, selectedPanelType],
+		[safeNavigate, exportDefaultQuery, selectedPanelType],
 	);
 
 	useEffect(() => {
@@ -366,8 +369,14 @@ function LogsExplorerViewsContainer({
 		orderBy,
 	]);
 
+	const onUnitChangeHandler = useCallback((value: string): void => {
+		setYAxisUnit(value);
+	}, []);
+
 	const chartData = useMemo(() => {
-		if (!stagedQuery) return [];
+		if (!stagedQuery) {
+			return [];
+		}
 
 		if (selectedPanelType === PANEL_TYPES.LIST) {
 			if (listChartData && listChartData.payload.data?.result.length > 0) {
@@ -376,7 +385,9 @@ function LogsExplorerViewsContainer({
 			return [];
 		}
 
-		if (!data || data.payload.data?.result.length === 0) return [];
+		if (!data || data.payload.data?.result.length === 0) {
+			return [];
+		}
 
 		const isGroupByExist = stagedQuery.builder.queryData.some(
 			(queryData) => queryData.groupBy.length > 0,
@@ -456,8 +467,9 @@ function LogsExplorerViewsContainer({
 					)}
 
 				<div className="logs-explorer-views-type-content">
-					{showLiveLogs && <LiveLogs />}
-
+					{showLiveLogs && (
+						<LiveLogs handleChangeSelectedView={handleChangeSelectedView} />
+					)}
 					{selectedPanelType === PANEL_TYPES.LIST && !showLiveLogs && (
 						<LogsExplorerList
 							isLoading={isLoading}
@@ -469,21 +481,29 @@ function LogsExplorerViewsContainer({
 							isError={isError}
 							error={error as APIError}
 							isFilterApplied={!isEmpty(listQuery?.filters?.items)}
+							handleChangeSelectedView={handleChangeSelectedView}
 						/>
 					)}
-
 					{selectedPanelType === PANEL_TYPES.TIME_SERIES && !showLiveLogs && (
-						<TimeSeriesView
-							isLoading={isLoading || isFetching}
-							data={data}
-							isError={isError}
-							error={error as APIError}
-							isFilterApplied={!isEmpty(listQuery?.filters?.items)}
-							dataSource={DataSource.LOGS}
-							setWarning={setWarning}
-						/>
+						<div className="time-series-view-container">
+							<div className="time-series-view-container-header">
+								<BuilderUnitsFilter
+									onChange={onUnitChangeHandler}
+									yAxisUnit={yAxisUnit}
+								/>
+							</div>
+							<TimeSeriesView
+								isLoading={isLoading || isFetching}
+								data={data}
+								isError={isError}
+								error={error as APIError}
+								yAxisUnit={yAxisUnit}
+								isFilterApplied={!isEmpty(listQuery?.filters?.items)}
+								dataSource={DataSource.LOGS}
+								setWarning={setWarning}
+							/>
+						</div>
 					)}
-
 					{selectedPanelType === PANEL_TYPES.TABLE && !showLiveLogs && (
 						<LogsExplorerTable
 							data={

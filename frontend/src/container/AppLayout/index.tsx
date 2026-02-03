@@ -1,8 +1,19 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable jsx-a11y/click-events-have-key-events */
 /* eslint-disable jsx-a11y/anchor-is-valid */
-import './AppLayout.styles.scss';
-
+import {
+	ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react';
+import { Helmet } from 'react-helmet-async';
+import { useTranslation } from 'react-i18next';
+import { useMutation, useQueries } from 'react-query';
+import { useDispatch, useSelector } from 'react-redux';
+import { useLocation } from 'react-router-dom';
 import * as Sentry from '@sentry/react';
 import { Toaster } from '@signozhq/sonner';
 import { Flex } from 'antd';
@@ -39,19 +50,6 @@ import history from 'lib/history';
 import { isNull } from 'lodash-es';
 import ErrorBoundaryFallback from 'pages/ErrorBoundaryFallback/ErrorBoundaryFallback';
 import { useAppContext } from 'providers/App/App';
-import {
-	ReactNode,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from 'react';
-import { Helmet } from 'react-helmet-async';
-import { useTranslation } from 'react-i18next';
-import { useMutation, useQueries } from 'react-query';
-import { useDispatch, useSelector } from 'react-redux';
-import { useLocation } from 'react-router-dom';
 import { Dispatch } from 'redux';
 import { AppState } from 'store/reducers';
 import AppActions from 'types/actions';
@@ -86,6 +84,8 @@ import {
 
 import { ChildrenContainer, Layout, LayoutContent } from './styles';
 import { getRouteKey } from './utils';
+
+import './AppLayout.styles.scss';
 
 // eslint-disable-next-line sonarjs/cognitive-complexity
 function AppLayout(props: AppLayoutProps): JSX.Element {
@@ -391,6 +391,9 @@ function AppLayout(props: AppLayoutProps): JSX.Element {
 
 	const routeKey = useMemo(() => getRouteKey(pathname), [pathname]);
 	const pageTitle = t(routeKey);
+
+	const isPublicDashboard = pathname.startsWith('/public/dashboard/');
+
 	const renderFullScreen =
 		pathname === ROUTES.GET_STARTED ||
 		pathname === ROUTES.ONBOARDING ||
@@ -399,7 +402,8 @@ function AppLayout(props: AppLayoutProps): JSX.Element {
 		pathname === ROUTES.GET_STARTED_INFRASTRUCTURE_MONITORING ||
 		pathname === ROUTES.GET_STARTED_LOGS_MANAGEMENT ||
 		pathname === ROUTES.GET_STARTED_AWS_MONITORING ||
-		pathname === ROUTES.GET_STARTED_AZURE_MONITORING;
+		pathname === ROUTES.GET_STARTED_AZURE_MONITORING ||
+		isPublicDashboard;
 
 	const [showTrialExpiryBanner, setShowTrialExpiryBanner] = useState(false);
 

@@ -1,9 +1,7 @@
-import './QueryAggregation.styles.scss';
-
+import { useMemo } from 'react';
 import { Tooltip } from 'antd';
 import InputWithLabel from 'components/InputWithLabel/InputWithLabel';
 import { PANEL_TYPES } from 'constants/queryBuilder';
-import { useMemo } from 'react';
 import {
 	IBuilderQuery,
 	IBuilderTraceOperator,
@@ -11,6 +9,8 @@ import {
 import { DataSource } from 'types/common/queryBuilder';
 
 import QueryAggregationSelect from './QueryAggregationSelect';
+
+import './QueryAggregation.styles.scss';
 
 function QueryAggregationOptions({
 	dataSource,
@@ -43,7 +43,10 @@ function QueryAggregationOptions({
 	};
 
 	return (
-		<div className="query-aggregation-container">
+		<div
+			className="query-aggregation-container"
+			data-testid="query-aggregation-container"
+		>
 			<div className="aggregation-container">
 				<QueryAggregationSelect
 					onChange={onChange}

@@ -1,19 +1,20 @@
-import './AuthDomain.styles.scss';
-
+import { useState } from 'react';
+import { useQuery } from 'react-query';
 import { PlusOutlined } from '@ant-design/icons';
 import { Button, Table, Typography } from 'antd';
 import { ColumnsType } from 'antd/lib/table';
 import deleteDomain from 'api/v1/domains/id/delete';
 import listAllDomain from 'api/v1/domains/list';
 import ErrorContent from 'components/ErrorModal/components/ErrorContent';
+import CopyToClipboard from 'periscope/components/CopyToClipboard';
 import { useErrorModal } from 'providers/ErrorModalProvider';
-import { useState } from 'react';
-import { useQuery } from 'react-query';
 import APIError from 'types/api/error';
 import { GettableAuthDomain, SSOType } from 'types/api/v1/domains/list';
 
 import CreateEdit from './CreateEdit/CreateEdit';
 import Toggle from './Toggle';
+
+import './AuthDomain.styles.scss';
 
 const columns: ColumnsType<GettableAuthDomain> = [
 	{
@@ -31,6 +32,23 @@ const columns: ColumnsType<GettableAuthDomain> = [
 		render: (value: boolean, record: GettableAuthDomain): JSX.Element => (
 			<Toggle isDefaultChecked={value} record={record} />
 		),
+	},
+	{
+		title: 'IDP Initiated SSO URL',
+		dataIndex: 'relayState',
+		key: 'relayState',
+		width: 80,
+		render: (_, record: GettableAuthDomain): JSX.Element => {
+			const relayPath = record.authNProviderInfo.relayStatePath;
+			if (!relayPath) {
+				return (
+					<Typography.Text style={{ paddingLeft: '6px' }}>N/A</Typography.Text>
+				);
+			}
+
+			const href = `${window.location.origin}/${relayPath}`;
+			return <CopyToClipboard textToCopy={href} />;
+		},
 	},
 	{
 		title: 'Action',

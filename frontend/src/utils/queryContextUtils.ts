@@ -10,12 +10,12 @@ import {
 	isFunctionToken,
 	isKeyToken,
 	isMultiValueOperator,
+	isNonValueOperator,
 	isNonValueOperatorToken,
 	isOperatorToken,
 	isQueryPairComplete,
 	isValueToken,
 } from './tokenUtils';
-import { NON_VALUE_OPERATORS } from 'constants/antlrQueryConstants';
 
 // Function to create a context object
 export function createContext(
@@ -1319,7 +1319,7 @@ export function extractQueryPairs(query: string): IQueryPair[] {
 				currentPair &&
 				currentPair.key &&
 				currentPair.operator &&
-				!NON_VALUE_OPERATORS.includes(currentPair.operator) &&
+				!isNonValueOperator(currentPair.operator) &&
 				!currentPair.value
 			) {
 				currentPair.value = token.text;
@@ -1339,8 +1339,7 @@ export function extractQueryPairs(query: string): IQueryPair[] {
 			else if (
 				currentPair &&
 				currentPair.key &&
-				(isConjunctionToken(token.type) ||
-					(token.type === FilterQueryLexer.KEY && isQueryPairComplete(currentPair)))
+				(isConjunctionToken(token.type) || token.type === FilterQueryLexer.KEY)
 			) {
 				queryPairs.push({
 					key: currentPair.key,

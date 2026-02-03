@@ -1,7 +1,7 @@
-from os import path
 import platform
 import time
 from http import HTTPStatus
+from os import path
 
 import docker
 import docker.errors
@@ -34,14 +34,21 @@ def signoz(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         # Run the migrations for clickhouse
         request.getfixturevalue("migrator")
 
+        # Get the no-web flag
+        with_web = pytestconfig.getoption("--with-web")
+
         arch = platform.machine()
         if arch == "x86_64":
             arch = "amd64"
 
         # Build the image
+        dockerfile_path = "cmd/enterprise/Dockerfile.integration"
+        if with_web:
+            dockerfile_path = "cmd/enterprise/Dockerfile.with-web.integration"
+
         self = DockerImage(
             path="../../",
-            dockerfile_path="cmd/enterprise/Dockerfile.integration",
+            dockerfile_path=dockerfile_path,
             tag="signoz:integration",
             buildargs={
                 "TARGETARCH": arch,
@@ -53,15 +60,22 @@ def signoz(  # pylint: disable=too-many-arguments,too-many-positional-arguments
 
         env = (
             {
-                "SIGNOZ_WEB_ENABLED": True,
+                "SIGNOZ_WEB_ENABLED": False,
                 "SIGNOZ_WEB_DIRECTORY": "/root/web",
                 "SIGNOZ_INSTRUMENTATION_LOGS_LEVEL": "debug",
                 "SIGNOZ_PROMETHEUS_ACTIVE__QUERY__TRACKER_ENABLED": False,
                 "SIGNOZ_GATEWAY_URL": gateway.container_configs["8080"].base(),
+                "SIGNOZ_TOKENIZER_JWT_SECRET": "secret",
+                "SIGNOZ_GLOBAL_INGESTION__URL": "https://ingest.test.signoz.cloud",
+                "SIGNOZ_USER_PASSWORD_RESET_ALLOW__SELF": True,
+                "SIGNOZ_USER_PASSWORD_RESET_MAX__TOKEN__LIFETIME": "6h",
             }
             | sqlstore.env
             | clickhouse.env
         )
+
+        if with_web:
+            env["SIGNOZ_WEB_ENABLED"] = True
 
         container = DockerContainer("signoz:integration")
         for k, v in env.items():
@@ -71,7 +85,7 @@ def signoz(  # pylint: disable=too-many-arguments,too-many-positional-arguments
 
         provider = request.config.getoption("--sqlstore-provider")
         if provider == "sqlite":
-            dir_path = path.dirname(sqlstore.env["SIGNOZ_SQLSTORE_SQLITE_PATH"])            
+            dir_path = path.dirname(sqlstore.env["SIGNOZ_SQLSTORE_SQLITE_PATH"])
             container.with_volume_mapping(
                 dir_path,
                 dir_path,
@@ -87,14 +101,15 @@ def signoz(  # pylint: disable=too-many-arguments,too-many-positional-arguments
                         f"http://{container.get_container_host_ip()}:{container.get_exposed_port(8080)}/api/v1/health",
                         timeout=2,
                     )
-                    return response.status_code == HTTPStatus.OK
+                    if response.status_code == HTTPStatus.OK:
+                        return
                 except Exception:  # pylint: disable=broad-exception-caught
                     logger.info(
                         "Attempt %s at readiness check for SigNoz container %s failed, going to retry ...",
                         attempt + 1,
                         container,
                     )
-                    time.sleep(2)
+                time.sleep(2)
             raise TimeoutError("timeout exceeded while waiting")
 
         try:
